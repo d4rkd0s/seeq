@@ -35,6 +35,28 @@ bash -n bin/*.sh bin/coa                # Bash syntax check
 
 **Before commit:** run `tools/test_sequencer.py` and syntax checks.
 
+## Releasing
+
+**Every push of new code gets a version tag + GitHub Release** — don't let commits pile up
+unreleased. Current: **v1.1.0** (v1.0.0 was the first tagged release).
+
+1. Test gate first: `python3 -m py_compile bin/*.py tools/*.py`, `bash -n bin/*.sh bin/coa`,
+   `python3 tools/test_sequencer.py` (must stay green).
+2. **Secrets/callsign sweep before anything touches origin** — this repo had [redacted]/[redacted]/a real
+   `station.conf` live on GitHub for ~6 days before it was caught and scrubbed (2026-07-11
+   remediation: squashed history, force-pushed via SSH, verified server-side via the GitHub API).
+   Never repeat that: `git diff | grep -inE "[redacted]|[redacted][^0-9]|d4rkd0s@gmail|/home/logan"` must
+   come back clean before staging.
+3. Bump version by semver: patch for fixes, **minor for new features** (the common case here —
+   most sessions add dashboard/UI capability), major only for a breaking change to the TX safety
+   contract or config format.
+4. `git add <specific files>` (never `-A`/`.`) → commit → `git tag -a vX.Y.Z -m "..."` →
+   `git push origin master` → `git push origin vX.Y.Z`.
+5. `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."` — GitHub auto-attaches the zip/tar.gz
+   source archives to every tag by default, nothing extra to configure for that.
+6. Verify server-side, not just locally — pull the pushed tag's tree via the GitHub API and grep
+   raw file contents for the callsign/grid pattern above. Trust but verify what's actually public.
+
 ## Operating
 
 ```bash
