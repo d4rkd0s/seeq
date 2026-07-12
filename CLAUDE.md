@@ -42,11 +42,13 @@ unreleased. Current: **v1.1.0** (v1.0.0 was the first tagged release).
 
 1. Test gate first: `python3 -m py_compile bin/*.py tools/*.py`, `bash -n bin/*.sh bin/coa`,
    `python3 tools/test_sequencer.py` (must stay green).
-2. **Secrets/callsign sweep before anything touches origin** — this repo had [redacted]/[redacted]/a real
-   `station.conf` live on GitHub for ~6 days before it was caught and scrubbed (2026-07-11
-   remediation: squashed history, force-pushed via SSH, verified server-side via the GitHub API).
-   Never repeat that: `git diff | grep -inE "[redacted]|[redacted][^0-9]|d4rkd0s@gmail|/home/logan"` must
-   come back clean before staging.
+2. **Secrets/callsign sweep before anything touches origin** — this repo once had the operator's
+   real callsign, grid locator, and a live `station.conf` exposed on GitHub for about a week
+   before it was caught and scrubbed (2026-07-11 remediation: squashed history, force-pushed via
+   SSH, verified server-side via the GitHub API). Never repeat that: `git diff` must not contain
+   the operator's real callsign, grid square, personal email, or home directory path — check
+   against the actual values in your local (gitignored) `station.conf`, never hardcode any of
+   them into this file or any other tracked doc, even as a "here's what to grep for" example.
 3. Bump version by semver: patch for fixes, **minor for new features** (the common case here —
    most sessions add dashboard/UI capability), major only for a breaking change to the TX safety
    contract or config format.
