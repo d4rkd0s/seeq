@@ -10,8 +10,11 @@ COA_DRYRUN=1 to log intended commands without executing them (used for testing).
 import http.server, json, os, socketserver, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import adif
+import logbook
 import station_config
 import world_map                      # embedded coastline path (no network at runtime)
+import logsync                        # QRZ Logbook status (read-only here) + sync subprocess
 
 _C = station_config.load()
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -53,6 +56,10 @@ DEFAULT_MAX_W = 5      # conservative cap for an antenna with no confirmed RF-ex
 DRYRUN = os.environ.get("COA_DRYRUN", "") not in ("", "0", "false", "False")
 QSO_PY = os.path.join(_BIN, "qso.py")
 RXLOOP_SH = os.path.join(_BIN, "rx-loop.sh")
+LOGSYNC_PY = os.path.join(_BIN, "logsync.py")
+QRZ_FETCH_PY = os.path.join(_BIN, "qrz_fetch.py")
+QRZ_SYNC_LOG = os.path.join(DATA, "qrz-sync.log")
+QRZ_CACHE = os.path.join(DATA, "qrz-logbook.json")
 RIG_MODEL = _C.get("RIG_MODEL", "3060")
 CAT_PORT = _C.get("CAT_PORT", "/dev/ttyUSB0")
 CAT_BAUD = _C.get("CAT_BAUD", "19200")
@@ -197,6 +204,11 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
  .widget[data-key=events]{width:880px;height:170px}
  .widget[data-key=actions]{width:300px;height:320px}
  .widget[data-key=stationcfg]{width:340px;height:420px}
+ .widget[data-key=qrz]{width:340px;height:340px}
+ .widget[data-key=logbook]{width:560px;height:340px}
+ #lbTable td.lb-confirmed{color:#3fb950;font-weight:700}
+ #lbTable td.lb-uploaded{color:#56d4dd}
+ #lbTable td.lb-notsynced{color:#8b949e}
  .widget[data-key=status]{width:100%;height:66px}
 
  .actionbtn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:5px;
@@ -321,6 +333,47 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
     </div>
     <div class=dim id=antMsg></div>
    </details>
+  </div>
+ </div>
+
+ <div class=widget data-key=qrz>
+  <div class=wtitle><span class=wname>QRZ Logbook</span><span class=dim id=qrzConfigured></span><button class=wcollapse></button></div>
+  <div class=wbody>
+   <div class=dim id=qrzSetupMsg style="display:none;margin-bottom:8px">
+    No QRZ API key on file yet. This never gets typed into the browser —
+    on the machine running this dashboard:
+    <pre style="white-space:pre-wrap;font-size:11px;margin:6px 0">mkdir -p ~/.config/cota
+echo 'YOUR-KEY' &gt; ~/.config/cota/qrz.key
+chmod 600 ~/.config/cota/qrz.key</pre>
+    Get the key at <b>logbook.qrz.com/logbook → Settings</b> (requires the
+    "XML Logbook Data" subscription). No subscription? Free manual import
+    instead: <b>logbook.qrz.com/logbook → Import</b>.
+   </div>
+   <div class=astatus>
+    <span class=it><span class=k>PENDING&nbsp;</span><span class=v id=qrzPending>—</span></span>
+    <span class=it><span class=k>SYNC&nbsp;</span><span class=v id=qrzSyncing>—</span></span>
+   </div>
+   <div class=arow><button id=qrzSyncBtn class=actionbtn>Sync to QRZ</button></div>
+   <div class=dim id=qrzMsg></div>
+   <details style="margin-top:8px">
+    <summary class=dim style="cursor:pointer">Recent sync log</summary>
+    <pre id=qrzLog style="font-size:11px;max-height:140px;overflow-y:auto;margin-top:6px">no syncs yet</pre>
+   </details>
+  </div>
+ </div>
+
+ <div class=widget data-key=logbook>
+  <div class=wtitle><span class=wname>Logbook</span>
+   <span class=dim id=lbSummary></span>
+   <button id=lbRefreshBtn class=actionbtn>Refresh from QRZ</button>
+   <button class=wcollapse></button></div>
+  <div class=wbody>
+   <table id=lbTable>
+    <tr><th>UTC</th><th>call</th><th>grid</th><th>band</th><th>sent</th><th>rcvd</th><th>QRZ</th></tr>
+   </table>
+   <div class=dim style="margin-top:6px">✔ confirmed = the other station's log matched yours on QRZ
+    (call+band+mode, times within ±30 min — exact FT8 slot times confirm fast; hand-entered
+    times outside the window never auto-confirm). ↑ uploaded = on QRZ, awaiting their side.</div>
   </div>
  </div>
 
@@ -799,6 +852,90 @@ function wireStationCfg(){
    'remove failed: '+(r.body.error||r.error||r.status);
   if(r.ok) loadAntennas();
  });
+}
+
+/* ---- QRZ Logbook widget: status is read-only/local (never shows the key
+   itself), the actual sync runs as a detached background process (spawned
+   server-side) since this server handles one request at a time and a real
+   sync is a sequence of blocking HTTPS calls to QRZ -- kicking it off just
+   starts the process; polling picks up progress via the same /qrz/status
+   endpoint everything else here already uses that pattern for. ---- */
+let qrzSyncPolling=null;
+async function loadQrzStatus(){
+ try{
+  const r=await fetch('/qrz/status?t='+Date.now()); if(!r.ok) return;
+  const s=await r.json();
+  document.getElementById('qrzConfigured').textContent=s.configured?'key on file':'no key yet';
+  document.getElementById('qrzSetupMsg').style.display=s.configured?'none':'block';
+  document.getElementById('qrzPending').textContent=s.pending;
+  document.getElementById('qrzSyncing').textContent=s.syncing?'running…':'idle';
+  const log=document.getElementById('qrzLog');
+  log.textContent=(s.log_tail&&s.log_tail.length)?s.log_tail.join('\\n'):'no syncs yet';
+  const btn=document.getElementById('qrzSyncBtn');
+  btn.disabled=s.syncing||!s.configured;
+  if(s.syncing && !qrzSyncPolling){
+   qrzSyncPolling=setInterval(loadQrzStatus,2000);
+  }else if(!s.syncing && qrzSyncPolling){
+   clearInterval(qrzSyncPolling); qrzSyncPolling=null;
+  }
+ }catch(e){}
+}
+function wireQrz(){
+ document.getElementById('qrzSyncBtn').addEventListener('click',async()=>{
+  const msg=document.getElementById('qrzMsg');
+  msg.textContent='starting sync…';
+  const r=await postAction('/action/qrz/sync',{});
+  msg.textContent=r.ok?'sync started':'sync failed: '+(r.body.error||r.error||r.status);
+  loadQrzStatus();
+ });
+ document.getElementById('lbRefreshBtn').addEventListener('click',async()=>{
+  const btn=document.getElementById('lbRefreshBtn');
+  btn.disabled=true; btn.textContent='Refreshing…';
+  const r=await postAction('/action/qrz/refresh',{});
+  if(!r.ok){
+   btn.disabled=false; btn.textContent='Refresh from QRZ';
+   document.getElementById('lbSummary').textContent='refresh failed: '+(r.body.error||r.error||r.status);
+   return;
+  }
+  // poll until the fetch process exits, then re-render the merged table
+  const iv=setInterval(async()=>{
+   try{
+    const s=await (await fetch('/qrz/status?t='+Date.now())).json();
+    if(!s.fetching){
+     clearInterval(iv);
+     btn.disabled=false; btn.textContent='Refresh from QRZ';
+     loadLogbook(); loadQrzStatus();
+    }
+   }catch(e){}
+  },1500);
+ });
+}
+
+/* ---- Logbook widget: every local QSO with its QRZ standing, newest
+   first. Server does the matching (bin/logbook.py, ±30 min tolerance --
+   QRZ's own documented confirmation window); this just renders rows. ---- */
+const LB_MARKS={confirmed:['✔ confirmed','lb-confirmed'],
+                uploaded:['↑ uploaded','lb-uploaded'],
+                'not synced':['— not synced','lb-notsynced']};
+async function loadLogbook(){
+ try{
+  const r=await fetch('/logbook?t='+Date.now()); if(!r.ok) return;
+  const d=await r.json();
+  let h='<tr><th>UTC</th><th>call</th><th>grid</th><th>band</th><th>sent</th><th>rcvd</th><th>QRZ</th></tr>';
+  for(const row of d.rows||[]){
+   const t=row.time?`${row.time.slice(0,2)}:${row.time.slice(2,4)}`:'';
+   const dte=row.date?`${row.date.slice(4,6)}-${row.date.slice(6,8)}`:'';
+   const [label,cls]=LB_MARKS[row.qrz]||[row.qrz,''];
+   h+=`<tr><td>${esc(dte)} ${esc(t)}</td><td>${esc(row.call)}</td><td>${esc(row.grid)}</td>`+
+      `<td>${esc(row.band)}</td><td>${esc(row.sent)}</td><td>${esc(row.rcvd)}</td>`+
+      `<td class="${cls}">${esc(label)}</td></tr>`;
+  }
+  document.getElementById('lbTable').innerHTML=h;
+  const n=(d.rows||[]).length, c=(d.rows||[]).filter(r=>r.qrz==='confirmed').length;
+  document.getElementById('lbSummary').textContent=
+   `${n} QSO(s) · ${c} confirmed · QRZ book: ${d.qrz_count}`+
+   (d.fetched_at?` (fetched ${d.fetched_at.slice(11,16)}Z)`:' (never fetched)');
+ }catch(e){}
 }
 
 function renderRX(s){
@@ -1324,6 +1461,7 @@ wireBell();
 loadLayout();
 wireActions();
 wireStationCfg();
+wireQrz();
 document.getElementById('evRaw').addEventListener('change',renderEvents);
 document.getElementById('txwf').addEventListener('error',function(){this.style.display='none';});
 loadCfg().then(()=>{ tick(); loadBands().then(()=>{ buildAntBandsRow(); loadAntennas(); }); });
@@ -1331,6 +1469,8 @@ setInterval(tick,5000);
 engTick(); setInterval(engTick,2000);
 setInterval(nextTxFastTick,150);           // smooth NEXT TX countdown between engTick polls
 refreshActionsState(); setInterval(refreshActionsState,3000);
+loadQrzStatus(); setInterval(loadQrzStatus,10000);
+loadLogbook(); setInterval(loadLogbook,15000);
 </script></body></html>"""
 PAGE = (PAGE.replace("__MYCALL__", MYCALL).replace("__MYGRID__", MYGRID)
             .replace("__EVENT_LINES__", str(EVENT_LINES))
@@ -1349,6 +1489,66 @@ def chase_tail(n=EVENT_LINES):
         return [l.rstrip() for l in lines if l.strip()][-n:]
     except OSError:
         return []
+
+def qrz_sync_tail(n=30):
+    try:
+        with open(QRZ_SYNC_LOG, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 64 * 1024))
+            lines = f.read().decode("utf-8", errors="replace").splitlines()
+        return [l.rstrip() for l in lines if l.strip()][-n:]
+    except OSError:
+        return []
+
+def _read_qrz_cache():
+    try:
+        with open(QRZ_CACHE) as f:
+            obj = json.load(f)
+        if isinstance(obj, dict) and isinstance(obj.get("records"), list):
+            return obj
+    except (OSError, ValueError):
+        pass
+    return {"fetched_at": None, "count": 0, "records": []}
+
+
+def _qrz_status():
+    """Read-only: never touches the network, never returns the key itself —
+    just whether one's on file, how many ADIF records are past the last
+    synced offset, and whether a sync/fetch is currently running."""
+    offset = logsync.read_offset()
+    pending = len(logsync.new_records(logsync.DEFAULT_ADIF, offset))
+    cache = _read_qrz_cache()
+    confirmed = sum(1 for r in cache["records"]
+                    if (r.get("app_qrzlog_status") or "").upper() == "C")
+    return {
+        "configured": logsync.read_key() is not None,
+        "offset": offset,
+        "pending": pending,
+        "adif": logsync.DEFAULT_ADIF,
+        "syncing": _proc_running(LOGSYNC_PY),
+        "fetching": _proc_running(QRZ_FETCH_PY),
+        "qrz_count": cache["count"],
+        "qrz_confirmed": confirmed,
+        "fetched_at": cache["fetched_at"],
+        "log_tail": qrz_sync_tail(30),
+    }
+
+
+def _logbook_payload():
+    """Local ADIF cross-matched against the QRZ fetch cache — the Logbook
+    widget's data. Newest first. Pure merge logic lives in logbook.py."""
+    try:
+        with open(logsync.DEFAULT_ADIF, "rb") as f:
+            local = adif.records_from_bytes(f.read())
+    except OSError:
+        local = []
+    cache = _read_qrz_cache()
+    rows = logbook.merge(local, cache["records"],
+                         synced_through=logsync.read_offset())
+    rows.reverse()
+    return {"rows": rows, "qrz_count": cache["count"],
+            "fetched_at": cache["fetched_at"]}
 
 def atomic_write_json(path, obj):
     """tmp + os.replace so a reader never sees a half-written file."""
@@ -1489,6 +1689,10 @@ class H(http.server.SimpleHTTPRequestHandler):
         elif path == "/bands":
             body = json.dumps([{"name": n, **v} for n, v in BANDS.items()]).encode()
             self.send_body(body, "application/json")
+        elif path == "/qrz/status":
+            self.send_body(json.dumps(_qrz_status()).encode(), "application/json")
+        elif path == "/logbook":
+            self.send_body(json.dumps(_logbook_payload()).encode(), "application/json")
         elif path == "/layout":
             try:
                 with open(LAYOUT_JSON, "rb") as f:
@@ -1556,6 +1760,10 @@ class H(http.server.SimpleHTTPRequestHandler):
                 self._action_antenna_remove(body)
             elif path == "/action/station/set":
                 self._action_station_set(body)
+            elif path == "/action/qrz/sync":
+                self._action_qrz_sync()
+            elif path == "/action/qrz/refresh":
+                self._action_qrz_refresh()
             else:
                 self._err(404, "no such endpoint")
         except Exception as e:
@@ -1792,6 +2000,41 @@ class H(http.server.SimpleHTTPRequestHandler):
             "note": f"Saved and applied. Retune the radio to {freq_hz/1e6:.3f} MHz before chasing — "
                     f"config takes effect immediately; nothing else to restart."
         })
+
+    def _action_qrz_sync(self):
+        """Spawns logsync.py detached (real upload, not --dry-run) -- this
+        server is single-threaded, so a real sync (sequential HTTPS POSTs to
+        QRZ, one per record) must run out-of-process or it would freeze the
+        whole dashboard for everyone until it finished. Never touches the
+        rig/CAT port; safe to run regardless of chaser state."""
+        if not logsync.read_key():
+            return self._err(400, "no QRZ API key configured yet — see the QRZ Logbook widget")
+        if _proc_running(LOGSYNC_PY):
+            log_action("qrz/sync: refused, already syncing")
+            return self._err(409, "a sync is already in progress")
+        if DRYRUN:
+            log_action(f"[DRYRUN] would sync to QRZ: python3 {LOGSYNC_PY}")
+            return self._ok({"started": True, "dryrun": True})
+        _spawn_detached(["python3", LOGSYNC_PY], QRZ_SYNC_LOG)
+        log_action(f"qrz/sync: spawned python3 {LOGSYNC_PY}")
+        self._ok({"started": True})
+
+    def _action_qrz_refresh(self):
+        """Spawns qrz_fetch.py detached — pages the whole QRZ logbook into
+        data/qrz-logbook.json for the Logbook widget's confirmation view.
+        Same out-of-process rationale as _action_qrz_sync; never touches
+        the rig."""
+        if not logsync.read_key():
+            return self._err(400, "no QRZ API key configured yet — see the QRZ Logbook widget")
+        if _proc_running(QRZ_FETCH_PY):
+            log_action("qrz/refresh: refused, already fetching")
+            return self._err(409, "a fetch is already in progress")
+        if DRYRUN:
+            log_action(f"[DRYRUN] would fetch QRZ logbook: python3 {QRZ_FETCH_PY}")
+            return self._ok({"started": True, "dryrun": True})
+        _spawn_detached(["python3", QRZ_FETCH_PY], QRZ_SYNC_LOG)
+        log_action(f"qrz/refresh: spawned python3 {QRZ_FETCH_PY}")
+        self._ok({"started": True})
 
     def log_message(self, *a):
         pass

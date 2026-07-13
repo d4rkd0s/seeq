@@ -24,12 +24,12 @@ Usage:
 import argparse
 import os
 import re
-import subprocess
 import sys
-import urllib.parse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "bin"))
+import adif
+import qrz_api
 import station_config
 
 _C = station_config.load()
@@ -86,23 +86,9 @@ def write_offset(n):
     os.replace(tmp, STATE_PATH)
 
 
-def split_records(data):
-    """data: raw bytes of the ADIF file.
-    Returns [(record_bytes, end_byte_offset), ...] — records are delimited
-    by <eor> (case-insensitive); everything up to and including <eoh> (the
-    ADIF header) is skipped. Absent an <eoh>, the whole file is candidate
-    body (some minimal exports omit it)."""
-    eoh = re.search(rb"<eoh>", data, re.I)
-    body_start = eoh.end() if eoh else 0
-    records = []
-    pos = body_start
-    for m in re.finditer(rb"<eor>", data[body_start:], re.I):
-        end = body_start + m.end()
-        rec = data[pos:end]
-        if rec.strip():
-            records.append((rec, end))
-        pos = end
-    return records
+# Record splitting lives in adif.py now (shared with the dashboard's
+# logbook view); kept under the old name so existing callers don't move.
+split_records = adif.split_records
 
 
 def new_records(path, offset):
@@ -124,35 +110,16 @@ def extract_call(rec_str):
 
 
 def parse_qrz_response(resp):
-    """QRZ's API returns a & -joined KEY=VALUE query string, e.g.
-    'RESULT=OK&COUNT=1&LOGID=123' or 'RESULT=FAIL&REASON=...'. Some
-    duplicate responses use STATUS instead of RESULT. Returns (result,
-    reason) where reason falls back to the raw response if no REASON field
-    is present (so a "duplicate" substring check still works)."""
-    fields = {}
-    for kv in resp.split("&"):
-        if "=" in kv:
-            k, v = kv.split("=", 1)
-            fields[k.strip().upper()] = urllib.parse.unquote_plus(v)
-    result = (fields.get("RESULT") or fields.get("STATUS") or "").upper()
-    reason = fields.get("REASON", resp)
-    return result, reason
+    """Kept for compatibility — the protocol parsing moved to qrz_api.py
+    (shared with the dashboard's FETCH/STATUS support)."""
+    return qrz_api.result_of(qrz_api.parse_fields(resp), raw=resp)
 
 
 def qrz_post(key, adif_record_str):
-    """POST one ADIF record to the QRZ Logbook API via curl. Never called in
-    --dry-run mode. Returns (result, reason) — see parse_qrz_response."""
-    body = urllib.parse.urlencode({"KEY": key, "ACTION": "INSERT", "ADIF": adif_record_str})
-    try:
-        r = subprocess.run(["curl", "-s", "-S", "--max-time", "20", "--data", body, API_URL],
-                            capture_output=True, text=True, timeout=25)
-    except FileNotFoundError:
-        return "FAIL", "curl not found on this system"
-    except subprocess.TimeoutExpired:
-        return "FAIL", "request timed out"
-    if r.returncode != 0:
-        return "FAIL", f"curl exit {r.returncode}: {r.stderr.strip()}"
-    return parse_qrz_response(r.stdout.strip())
+    """POST one ADIF record to the QRZ Logbook API. Never called in
+    --dry-run mode. Returns (result, reason). Delegates to qrz_api.insert
+    — same curl transport, one implementation."""
+    return qrz_api.insert(key, adif_record_str)
 
 
 def main():
