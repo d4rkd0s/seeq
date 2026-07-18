@@ -25,18 +25,47 @@ From `agents/PREPROMPT.md` — these are codified in the watchdog and frequency 
 
 **TX safety chain is frozen code** — no cheap-model or local-model session may modify watchdog, frequency verification, or attended gates without full test suite + control-operator review.
 
+## TDD (required, repo-wide)
+
+Every new feature and every bug/regression fix goes red → green. No exceptions for
+"it's just a UI tweak" or "it's just a one-liner":
+
+1. **New feature:** write a test that specifies the expected behavior *before* the
+   implementation exists. Run it, confirm it fails (red) — a passing test at this
+   point means the test isn't testing anything.
+2. **Bug/regression fix:** write a test that reproduces the bug against the current
+   (broken) code first. Confirm it fails (red) for the reason you think it's failing,
+   not some unrelated error.
+3. Implement the minimal fix/feature, rerun, confirm green.
+4. Wire the new test into `Makefile`'s `test` target so CI enforces it forever, not
+   just this one session.
+
+This is a general practice, separate from (and doesn't weaken) the stricter frozen-code
+rule above — TX safety code needs full-suite + control-operator review *in addition to*
+its own red/green cycle.
+
+Dashboard UI logic lives as JS text embedded in Python strings inside `bin/dashboard.py`
+— not importable Python. Don't reimplement that logic in Python to test it (the copies
+drift and stop catching real bugs); extract the real JS source and execute it under
+Node via subprocess instead. `tools/test_dashboard_js.py` is the reference pattern:
+it slices `CALL_PREFIXES`/`callCountry()` out of `dashboard.py` between two stable
+source markers and runs it with `node -e`. Reuse that approach for any future
+dashboard.py JS changes (Node ships preinstalled on GitHub Actions `ubuntu-latest`
+runners, no extra CI setup needed).
+
 ## Test commands
 
 ```bash
 python3 tools/test_sequencer.py         # Unit tests for QSO state machine
 python3 tools/test_qrz.py               # Unit tests for ADIF/QRZ-API/logbook merge
 python3 tools/test_pipeline.py          # Unit tests for station.conf, decode storage, report, GFSK synth
+python3 tools/test_dashboard_js.py      # Unit tests for dashboard.py's embedded JS (callCountry), run via Node
 python3 -m py_compile bin/*.py tools/*.py
 bash -n bin/*.sh bin/coa                # Bash syntax check
 # or just: make test — runs all of the above (also what CI runs)
 ```
 
-**Before commit:** run `make test` (or the three suites + syntax checks individually).
+**Before commit:** run `make test` (or the suites + syntax checks individually) — every suite must be green, and per the TDD section above, any test added for this commit must have been red first.
 
 ## Releasing
 

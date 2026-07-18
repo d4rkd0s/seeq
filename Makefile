@@ -9,6 +9,7 @@ test:
 	python3 tools/test_sequencer.py
 	python3 tools/test_qrz.py
 	python3 tools/test_pipeline.py
+	python3 tools/test_dashboard_js.py
 
 selftest:
 	@echo "=== Running coa selftest ==="
