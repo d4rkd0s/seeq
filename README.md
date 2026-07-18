@@ -1,5 +1,7 @@
 # COTA — Claude on the Air: a Claude-built FT8 station for Linux hams 📻
 
+**A digital on-the-air system for HAM radio, built by Claude.**
+
 [![test](https://github.com/d4rkd0s/cota/actions/workflows/test.yml/badge.svg)](https://github.com/d4rkd0s/cota/actions/workflows/test.yml)
 
 **Decode, chase, and log FT8 QSOs from the command line**, with a live browser
@@ -21,6 +23,11 @@ frontier model actually cost, and how to hack on it for cents or for free with
 local models).
 
 ## ⚠️ Safety model — read this first
+
+**Claude does not transmit. Ever.** Claude built this software; it does not
+operate it. The licensed control operator runs the commands that operate the
+station (`coa start`, `coa chase N`, …) — every key-up on the air is a human
+decision, executed by human-run code, never an AI acting on its own.
 
 **You must be a licensed radio amateur, and you are the control operator.**
 FCC Part 97 (and most national regulations) make a licensed operator
