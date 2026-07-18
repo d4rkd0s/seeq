@@ -7,6 +7,8 @@ test:
 	bash -n bin/*.sh bin/coa
 	@echo "=== Unit tests ==="
 	python3 tools/test_sequencer.py
+	python3 tools/test_qrz.py
+	python3 tools/test_pipeline.py
 
 selftest:
 	@echo "=== Running coa selftest ==="

@@ -30,11 +30,13 @@ From `agents/PREPROMPT.md` — these are codified in the watchdog and frequency 
 ```bash
 python3 tools/test_sequencer.py         # Unit tests for QSO state machine
 python3 tools/test_qrz.py               # Unit tests for ADIF/QRZ-API/logbook merge
+python3 tools/test_pipeline.py          # Unit tests for station.conf, decode storage, report, GFSK synth
 python3 -m py_compile bin/*.py tools/*.py
 bash -n bin/*.sh bin/coa                # Bash syntax check
+# or just: make test — runs all of the above (also what CI runs)
 ```
 
-**Before commit:** run `tools/test_sequencer.py` and syntax checks.
+**Before commit:** run `make test` (or the three suites + syntax checks individually).
 
 ## Releasing
 

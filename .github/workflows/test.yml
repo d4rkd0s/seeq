@@ -16,9 +16,7 @@ jobs:
           python-version: '3'
 
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-numpy
+        run: pip install numpy
 
       - name: Run tests
         run: make test
