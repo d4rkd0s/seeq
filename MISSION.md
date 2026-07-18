@@ -1,5 +1,9 @@
 # FT8-Claude — Claude-driven digital contacts
 
+> This is a historical build log (dated session notes from initial development), not
+> project documentation. For the current pitch, install steps, and architecture, see
+> [README.md](README.md).
+
 Mission (Logan, 2026-07-03): drive FT8 contacts through Claude, with a display Logan can
 watch: **waterfall + decode list + contact log + "next call"**. Start basic, grow.
 

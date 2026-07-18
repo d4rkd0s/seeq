@@ -52,6 +52,9 @@ and your hardware's limits.
 
 ## Requirements
 
+Built and tested on Ubuntu 22.04 LTS (Jammy Jellyfish), kernel 5.15.0-185-generic —
+should work on any modern Linux distro with the packages below; not tested on macOS/BSD.
+
 - Linux with PulseAudio (or PipeWire's PulseAudio shim)
 - **WSJT-X package** — this project *calls* its GPL `jt9` decoder and
   `ft8code` encoder as external programs; they are not bundled or linked
@@ -115,6 +118,8 @@ offline shack. Panels: live waterfall, world map (heard stations plotted from
 their grid squares, fading over ~15 min; your QTH gold; an animated red arc to
 the station being worked while the rig is keyed), decode table, callers-to-you,
 QSO log, next-call suggestion, and the chaser's event diary.
+
+![COTA dashboard — waterfall, map, decode log, QSO log](screenshots/dashboard.png)
 
 ## On-air etiquette
 
