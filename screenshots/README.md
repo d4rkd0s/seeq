@@ -1,3 +1,4 @@
 # Screenshots
 
-Drop dashboard screenshots here — `dashboard.png` is referenced from the main README.
+`dashboard-idle.png` and `dashboard-calling.png` are referenced near the top of the
+main README. Replace them in place (same filenames) to update the images shown there.

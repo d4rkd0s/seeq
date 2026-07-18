@@ -22,6 +22,9 @@ by this code while the control operator watched.
 frontier model actually cost, and how to hack on it for cents or for free with
 local models).
 
+![COTA dashboard, idle — cockpit, logbook, decode table, world map](screenshots/dashboard-idle.png)
+![COTA dashboard, mid-QSO — live TX, red cockpit, calling location, TX arc on the map](screenshots/dashboard-calling.png)
+
 ## ⚠️ Safety model — read this first
 
 **Claude does not transmit. Ever.** Claude built this software; it does not
@@ -124,9 +127,8 @@ build, and **zero external requests** (the world coastline is Natural Earth
 offline shack. Panels: live waterfall, world map (heard stations plotted from
 their grid squares, fading over ~15 min; your QTH gold; an animated red arc to
 the station being worked while the rig is keyed), decode table, callers-to-you,
-QSO log, next-call suggestion, and the chaser's event diary.
-
-![COTA dashboard — waterfall, map, decode log, QSO log](screenshots/dashboard.png)
+QSO log, next-call suggestion, and the chaser's event diary. See it live in
+the screenshots near the top of this README.
 
 ## On-air etiquette
 
