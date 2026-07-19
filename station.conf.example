@@ -38,7 +38,7 @@ DUPE_RULE=day                   # skip calls already worked today (UTC)
 
 # Hunting etiquette (ZL2IFB FT8 Operating Guide)
 SNR_FLOOR=-16                   # don't call CQs weaker than this — QRP reciprocity
-CQ_MODIFIERS_OK=NA,USA,US,POTA,SOTA,IOTA,QRP   # directed-CQ modifiers we answer (plain CQ always OK; DX/contest always skipped; add your state/region)
+CQ_MODIFIERS_OK=NA,USA,US,POTA,SOTA,IOTA,QRP   # directed-CQ modifiers we answer (plain CQ always OK; contest always skipped; CQ DX skipped unless DX Mode is armed for that session — see dashboard "DX only" toggle; add your state/region)
 
 # Dashboard
 HTTP_PORT=8074

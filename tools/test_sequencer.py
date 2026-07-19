@@ -58,19 +58,29 @@ class TestPickOffset(unittest.TestCase):
 
 
 class TestCQFilter(unittest.TestCase):
-    def decision(self, msg):
+    def decision(self, msg, dx_mode=False):
         """None = not answerable; else (call, grid)."""
         pc = qso.parse_cq(msg)
         if not pc:
             return None
         call, grid, mod = pc
-        return (call, grid) if qso.cq_answerable(mod) else None
+        return (call, grid) if qso.cq_answerable(mod, dx_mode) else None
 
     def test_plain_cq_answer(self):
         self.assertEqual(self.decision("CQ K1ABC FN42"), ("K1ABC", "FN42"))
 
     def test_cq_dx_skip(self):
         self.assertIsNone(self.decision("CQ DX K1ABC"))
+
+    def test_cq_dx_still_skipped_dx_mode_off(self):
+        self.assertIsNone(self.decision("CQ DX K1ABC", dx_mode=False))
+
+    def test_cq_dx_answered_when_dx_mode_on(self):
+        self.assertEqual(self.decision("CQ DX K1ABC", dx_mode=True), ("K1ABC", ""))
+
+    def test_cq_test_still_skipped_in_dx_mode(self):
+        # contest CQs are never answerable, DX Mode or not
+        self.assertIsNone(self.decision("CQ TEST K1ABC", dx_mode=True))
 
     def test_cq_pota_answer(self):
         self.assertEqual(self.decision("CQ POTA W9AV EN53"), ("W9AV", "EN53"))
@@ -235,6 +245,41 @@ class TestStalledCQDetection(unittest.TestCase):
 
     def test_other_cq_not_detected(self):
         self.assertFalse(qso.is_target_cq("CQ W9XYZ EN53", "K1ABC"))
+
+
+class TestDXFilter(unittest.TestCase):
+    """dx_filter_ok(call, dx_mode, mycall) — DX Mode's country/DXCC-entity
+    candidate gate, applied to every CQ candidate (not just directed CQ DX
+    ones). dx_mode=False must be a total no-op (existing default behavior)."""
+
+    def test_off_always_true(self):
+        self.assertTrue(qso.dx_filter_ok("K1ABC", dx_mode=False, mycall="W1AW"))
+
+    def test_on_true_for_foreign_known_country(self):
+        self.assertTrue(qso.dx_filter_ok("DL1ABC", dx_mode=True, mycall="W1AW"))
+
+    def test_on_false_for_domestic(self):
+        self.assertFalse(qso.dx_filter_ok("K5XYZ", dx_mode=True, mycall="W1AW"))
+
+    def test_on_false_for_unknown_country(self):
+        self.assertFalse(qso.dx_filter_ok("QQ9ZZZ", dx_mode=True, mycall="W1AW"))
+
+
+class TestArgParsing(unittest.TestCase):
+    """build_argparser() — pure ArgumentParser construction, extracted out of
+    main() so CLI flags are unit-testable without invoking main()'s hunting
+    loop / radio I/O."""
+
+    def test_dx_only_defaults_false(self):
+        self.assertFalse(qso.build_argparser().parse_args([]).dx_only)
+
+    def test_dx_only_flag_parses_true(self):
+        self.assertTrue(qso.build_argparser().parse_args(["--dx-only"]).dx_only)
+
+    def test_existing_flags_unchanged(self):
+        a = qso.build_argparser().parse_args(["--max-qsos", "3", "--minutes", "5"])
+        self.assertEqual(a.max_qsos, 3)
+        self.assertEqual(a.minutes, 5.0)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ft8synth
 import station_config
 import decode_store
+import dxcc
 
 _C = station_config.load()          # station.conf; every key optional
 DATA    = os.path.expanduser(_C.get("DATA", os.path.join(_ROOT, "data")))
@@ -46,7 +47,7 @@ def ev(msg):
 # ---- engine state observer (display only — no engine logic reads this) ----
 ENGINE_JSON = os.path.join(DATA, "engine.json")
 _engine = {"utc": "", "state": "init", "target": None, "grid": None,
-           "tx": False, "msg": None, "offset": None, "next_tx_epoch": None,
+           "tx": False, "dx_mode": False, "msg": None, "offset": None, "next_tx_epoch": None,
            # tx_msg/tx_offset: the actual FT8 content of the last real (or
            # about-to-happen) transmission, for the dashboard's TX-transparency
            # panel. Deliberately separate from "msg" above, which doubles as a
@@ -117,16 +118,31 @@ def parse_cq(msg):
         return None
     return call, grid, mod
 
-def cq_answerable(mod):
+def cq_answerable(mod, dx_mode=False):
     """Directed-CQ policy (ZL2IFB guide): plain CQ or whitelisted modifier ->
-    answer; CQ DX, contest CQs (TEST/RU/FD/WW), and any other directed CQ
-    (continents, other states, etc.) -> skip. Case-insensitive."""
+    answer. Contest CQs (TEST/RU/FD/WW, CONTEST_MODS) -> always skip,
+    unaffected by DX Mode. 'CQ DX' -> skip UNLESS dx_mode is True (DX Mode
+    un-skips directed DX calls; see main()'s --dx-only and dx_filter_ok() for
+    the accompanying country filter). Any other directed CQ (continents,
+    other states) -> skip. Case-insensitive."""
     if not mod:
         return True
     m = mod.upper()
-    if m == "DX" or m in CONTEST_MODS:
+    if m in CONTEST_MODS:
         return False
+    if m == "DX":
+        return dx_mode
     return m in CQ_MODIFIERS_OK
+
+def dx_filter_ok(call, dx_mode, mycall=None):
+    """DX Mode's country/DXCC-entity candidate gate. dx_mode False -> always
+    True (no behavior change, existing default). dx_mode True -> only calls
+    that resolve to a DIFFERENT, KNOWN DXCC entity than `mycall` (default
+    MYCALL) pass — see dxcc.is_dx_call()'s fail-closed unmapped-prefix
+    behavior. Applies to EVERY CQ candidate, not just directed CQ DX ones: a
+    same-country plain CQ is excluded too, per the DX Mode product decision
+    (country filter + DX-modifier un-skip apply together)."""
+    return (not dx_mode) or dxcc.is_dx_call(call, mycall or MYCALL)
 
 def target_busy(msg, target, mycall=None):
     """True when `target` is heard working a DIFFERENT station: report,
@@ -443,19 +459,34 @@ def wait_slot_decodes(target_parity, line_pos, deadline_margin=2.0):
     line_pos2, decs = read_decodes(line_pos)
     return line_pos2, [d for d in decs if d["slot"] == slot_id], decs
 
-def main():
+def build_argparser():
+    """Pure ArgumentParser construction for main() — separated out so the
+    --dx-only flag (and the existing ones) are unit-testable without
+    invoking main()'s hunting loop / radio I/O. No behavior change to
+    main()."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--max-qsos", type=int, default=1)
     ap.add_argument("--minutes", type=float, default=0,
                     help="time budget: hunt until this many minutes pass (finishes any in-progress QSO first); implies unlimited QSO count unless --max-qsos also given")
+    ap.add_argument("--dx-only", action="store_true",
+                    help="DX Mode: chase only stations outside your own DXCC "
+                         "entity/country (and allow directed 'CQ DX'); all "
+                         "existing etiquette rails (SNR floor, busy-hold, "
+                         "repeat cap, split-calling, watchdog) are unchanged")
+    return ap
+
+def main():
+    ap = build_argparser()
     args = ap.parse_args()
+    dx_mode = args.dx_only
     if args.minutes and args.max_qsos == 1:
         args.max_qsos = 999
     stop_at = now() + args.minutes * 60 if args.minutes else None
     ev(f"chaser start: target {args.max_qsos} QSO(s)"
        + (f" / {args.minutes:g} min budget" if stop_at else "")
+       + (" [DX MODE]" if dx_mode else "")
        + f", dial {DIAL}, watchdog {WATCHDOG_S}s, repeat cap {MAX_REPEAT}")
-    write_engine_state(state="hunting", target=None, grid=None)
+    write_engine_state(state="hunting", target=None, grid=None, dx_mode=dx_mode)
     if rig("t") != "0":
         ev("ABORT: PTT not idle at start"); return
     completed = 0
@@ -484,8 +515,11 @@ def main():
             c_call, c_grid, c_mod = pc
             if c_call == MYCALL or c_call in worked or c_call in tried:
                 continue
-            if not cq_answerable(c_mod):
+            if not cq_answerable(c_mod, dx_mode):
                 ev(f"skip CQ {c_mod} {c_call} — directed CQ not for us")
+                continue
+            if not dx_filter_ok(c_call, dx_mode):
+                ev(f"skip {c_call} — DX Mode: not confirmed DX (same/unknown country)")
                 continue
             if d["snr"] < SNR_FLOOR:
                 ev(f"skip {c_call} at {d['snr']} dB — below SNR floor {SNR_FLOOR} (reciprocity)")

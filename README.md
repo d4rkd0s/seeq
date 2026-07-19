@@ -140,8 +140,11 @@ by Gary Hinson ZL2IFB:
   parity-aware), never calls on the DX's frequency
 - **Busy-hold** — if the target answers someone else, it holds fire instead of
   QRMing, and moves on after repeated cycles
-- **Directed-CQ respect** — never answers `CQ DX` or contest CQs; answers only
-  plain CQs and a configurable modifier whitelist (POTA, QRP, your region, …)
+- **Directed-CQ respect** — never answers `CQ DX` or contest CQs by default;
+  answers only plain CQs and a configurable modifier whitelist (POTA, QRP,
+  your region, …). DX Mode (dashboard toggle, per session) lifts the `CQ DX`
+  skip and restricts candidates to stations outside your own country/DXCC
+  entity — every other rail below still applies.
 - **SNR floor** — doesn't call stations too weak to plausibly hear a QRP reply
 - Stalled-QSO recovery, slot-parity tracking, and periodic breathers so it
   never dominates a frequency

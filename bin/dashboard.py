@@ -11,6 +11,7 @@ import http.server, json, os, socketserver, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adif
+import dxcc
 import logbook
 import station_config
 import world_map                      # embedded coastline path (no network at runtime)
@@ -169,6 +170,30 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
   box-shadow:inset 0 0 10vw 2vw rgba(248,81,73,.65);animation:pageGlow 1s ease-in-out infinite}
  @keyframes pageGlow{0%,100%{box-shadow:inset 0 0 8vw 1.5vw rgba(248,81,73,.45)}
   50%{box-shadow:inset 0 0 14vw 3vw rgba(248,81,73,.85)}}
+ /* ---- DX Mode armed: separate fixed layer + z-index from tx-live's red
+    layer (z-index 9998) so both can coexist at all times -- neither class
+    ever toggles the other off, pure z-index layering decides who paints on
+    top. TX-live ALWAYS wins when both are active (its z-index is higher).
+    Blue at red's base geometry (10vw blur / 2vw spread) but ~25% of its
+    base alpha (.65 * .25 = .1625) -- and deliberately not animated: DX-armed
+    is a standing-readiness state (like .armed's steady border), pulsing is
+    reserved for actual TX (tx-live / .armed.live), matching that existing
+    tiering. Driven purely by /actions/state's dx_mode field (the RUNNING
+    chaser's real state), same as tx-live is driven by j.ptt -- see
+    refreshActionsState(). ---- */
+ body.dx-armed{background:#0d1420}
+ body.dx-armed::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9997;
+  box-shadow:inset 0 0 10vw 2vw rgba(31,111,235,.1625)}
+ /* ---- DX Mode confirm modal: z-index 9999, above both glow layers, so it
+    stays fully legible/clickable regardless of TX/DX-armed state. ---- */
+ .modalOverlay{position:fixed;inset:0;z-index:9999;background:rgba(1,4,9,.72);
+  display:flex;align-items:center;justify-content:center}
+ .modalBox{background:#161b22;border:1px solid #30363d;border-radius:8px;
+  max-width:420px;padding:16px 18px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+ .modalTitle{font-size:15px;font-weight:700;color:#58a6ff;margin-bottom:8px}
+ .modalBody{font-size:12.5px;color:#c9d1d9;line-height:1.5}
+ .modalBody ul{margin:8px 0;padding-left:18px}
+ .modalBody li{margin:4px 0}
  #btnBell.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
  #dryrunBanner{background:#3d2f00;color:#e3b341;border:1px solid #6b5300;border-radius:6px;
   padding:4px 10px;font-size:12px;font-weight:700;display:none;margin-bottom:8px}
@@ -294,6 +319,9 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
    <div class=arow>
     <input id=chaseN type=number min=1 max=180 value=1>
     <select id=chaseMode><option value=qsos>QSOs</option><option value=minutes>minutes</option></select>
+    <label class=dim style="display:flex;align-items:center;gap:4px;cursor:pointer" title="chase stations outside your own country/DXCC entity only, and allow directed CQ DX">
+     <input type=checkbox id=dxModeToggle> DX only
+    </label>
     <button id=btnChaseStart class="actionbtn warn tx-capable">Automatic CQ</button>
     <button id=btnChaseStop class=actionbtn>Stop</button>
    </div>
@@ -409,6 +437,31 @@ chmod 600 ~/.config/cota/qrz.key</pre>
  </div>
 
 </div>
+<div id=dxModal class=modalOverlay style="display:none">
+ <div class=modalBox>
+  <div class=modalTitle>Arm DX Mode?</div>
+  <div class=modalBody>
+   DX Mode chases stations outside your own country/DXCC entity only, and stops
+   skipping directed "CQ DX" calls. Everything else about this chaser's
+   etiquette is unchanged — DX Mode only changes which CQs are eligible:
+   <ul>
+    <li><b>Split-calling is unchanged</b> — it still picks its own clear
+     offset and never calls on the DX station's frequency.</li>
+    <li><b>Don't create your own pileup.</b> If a DX station already has one,
+     expect to wait your turn — the pileup penalty and SNR floor still apply.</li>
+    <li><b>Patience beats repetition.</b> A clean, well-timed call beats
+     machine-gunning the same frame.</li>
+    <li>The SNR floor, busy-hold, repeat cap, and unkey watchdog are
+     <b>not</b> affected by this toggle.</li>
+   </ul>
+   See the ZL2IFB FT8 Operating Guide (README's On-air etiquette section).
+  </div>
+  <div class=arow style="justify-content:flex-end">
+   <button id=dxModalCancel class=actionbtn>Cancel</button>
+   <button id=dxModalConfirm class="actionbtn warn">Arm DX Mode</button>
+  </div>
+ </div>
+</div>
 <script>
 const DRYRUN = __DRYRUN__;
 function evClass(l){
@@ -500,61 +553,7 @@ function isGrid(t){ return /^[A-R]{2}[0-9]{2}$/.test(t) && t!=='RR73'; }
    lookup, not exhaustive). Longest matching prefix wins regardless of list
    order, so a 2-char entry like A7/Qatar always beats a broader single-
    letter US range -- no need to hand-sort this list for collisions. ---- */
-const CALL_PREFIXES=[
- ['A7','Qatar'],['A4','Oman'],['A6','United Arab Emirates'],['A9','Bahrain'],['AP','Pakistan'],
- ['KL','Alaska'],['KH','Hawaii / Pacific'],['KP','Caribbean (US)'],
- ['VE','Canada'],['VA','Canada'],['VO','Canada'],['VY','Canada'],
- ['XE','Mexico'],
- ['EI','Ireland'],['EJ','Ireland'],
- ['DL','Germany'],
- ['PA','Netherlands'],['PB','Netherlands'],['PC','Netherlands'],['PD','Netherlands'],
- ['PE','Netherlands'],['PF','Netherlands'],['PG','Netherlands'],['PH','Netherlands'],['PI','Netherlands'],
- ['IK','Italy'],['IZ','Italy'],['IW','Italy'],['IU','Italy'],['IN','Italy'],['IB','Italy'],['IC','Italy'],['IT','Italy'],
- ['EA','Spain'],['EB','Spain'],['EC','Spain'],
- ['CT','Portugal'],
- ['SM','Sweden'],['SA','Sweden'],['SB','Sweden'],['SC','Sweden'],['SD','Sweden'],['SE','Sweden'],
- ['SF','Sweden'],['SG','Sweden'],['SH','Sweden'],['SI','Sweden'],['SJ','Sweden'],['SK','Sweden'],['SL','Sweden'],
- ['LA','Norway'],['LB','Norway'],['LJ','Norway'],['LN','Norway'],
- ['OH','Finland'],
- ['OZ','Denmark'],['OU','Denmark'],['OV','Denmark'],['OW','Denmark'],['OX','Greenland'],
- ['SP','Poland'],['SN','Poland'],['SO','Poland'],['SQ','Poland'],['SR','Poland'],['HF','Poland'],
- ['ON','Belgium'],['OO','Belgium'],['OP','Belgium'],['OQ','Belgium'],['OR','Belgium'],['OS','Belgium'],['OT','Belgium'],
- ['HB','Switzerland'],
- ['OE','Austria'],
- ['SV','Greece'],
- ['UA','Russia'],['UB','Russia'],['UC','Russia'],
- ['JA','Japan'],['JE','Japan'],['JF','Japan'],['JG','Japan'],['JH','Japan'],['JI','Japan'],
- ['JJ','Japan'],['JK','Japan'],['JL','Japan'],['JM','Japan'],['JN','Japan'],['JO','Japan'],
- ['JP','Japan'],['JQ','Japan'],['JR','Japan'],['JS','Japan'],
- ['VK','Australia'],
- ['ZL','New Zealand'],
- ['PY','Brazil'],['PP','Brazil'],['PQ','Brazil'],['PR','Brazil'],['PS','Brazil'],['PT','Brazil'],
- ['PU','Brazil'],['PV','Brazil'],['PW','Brazil'],['ZV','Brazil'],['ZW','Brazil'],['ZX','Brazil'],['ZY','Brazil'],['ZZ','Brazil'],
- ['LU','Argentina'],['LW','Argentina'],
- ['ZS','South Africa'],['ZR','South Africa'],['ZT','South Africa'],['ZU','South Africa'],
- ['VU','India'],
- ['BY','China'],['BA','China'],['BD','China'],['BG','China'],['BH','China'],['BI','China'],['BJ','China'],['BL','China'],
- // Caribbean / Central & South America
- ['HI','Dominican Republic'],['CO','Cuba'],['CM','Cuba'],['CL','Cuba'],['6Y','Jamaica'],
- ['C6','Bahamas'],['KP4','Puerto Rico'],['TI','Costa Rica'],['HP','Panama'],['HR','Honduras'],
- ['YN','Nicaragua'],['YS','El Salvador'],['TG','Guatemala'],['V3','Belize'],
- ['YV','Venezuela'],['HK','Colombia'],['OA','Peru'],['CE','Chile'],['HC','Ecuador'],
- ['CX','Uruguay'],['ZP','Paraguay'],['CP','Bolivia'],['8P','Barbados'],['9Y','Trinidad and Tobago'],
- ['J3','Grenada'],['J6','St Lucia'],['J7','Dominica'],['J8','St Vincent'],['V4','St Kitts and Nevis'],
- // more Europe/Asia/Africa/Middle East commonly worked from the US
- ['TF','Iceland'],['9A','Croatia'],['S5','Slovenia'],['OK','Czech Republic'],['OM','Slovakia'],
- ['HA','Hungary'],['YO','Romania'],['LZ','Bulgaria'],['YU','Serbia'],['YT','Serbia'],
- ['UR','Ukraine'],['UT','Ukraine'],['UX','Ukraine'],['LY','Lithuania'],['YL','Latvia'],['ES','Estonia'],
- ['4X','Israel'],['4Z','Israel'],['SU','Egypt'],['CN','Morocco'],['TA','Turkey'],
- ['YB','Indonesia'],['DU','Philippines'],['HL','South Korea'],['HS','Thailand'],
- ['9M','Malaysia'],['9V','Singapore'],
- ['AA','United States'],['AB','United States'],['AC','United States'],['AD','United States'],['AE','United States'],
- ['AF','United States'],['AG','United States'],['AI','United States'],['AJ','United States'],
- ['AK','United States'],['AL','United States'],
- ['K','United States'],['N','United States'],['W','United States'],
- ['2E','United Kingdom'],['G','United Kingdom'],['M','United Kingdom'],
- ['F','France'],['I','Italy'],['R','Russia'],
-];
+const CALL_PREFIXES=__CALL_PREFIXES_JSON__;
 function callCountry(call){
  if(!call) return '';
  const base=call.split('/')[0].toUpperCase();
@@ -1225,6 +1224,7 @@ async function refreshActionsState(){
   aw.classList.toggle('armed',!!j.chaser);
   aw.classList.toggle('live',tx);
   document.body.classList.toggle('tx-live',tx);
+  document.body.classList.toggle('dx-armed',!!j.dx_mode);
   lastRxRunning=!!j.rxloop;
   chaserRunning=!!j.chaser;
  }catch(e){}
@@ -1249,12 +1249,34 @@ function wireActions(){
  document.getElementById('btnChaseCancel').addEventListener('click',()=>{
   document.getElementById('chaseConfirmMsg').style.display='none';
  });
+ // DX Mode toggle: checking it doesn't take effect immediately -- it opens
+ // the "Arm DX Mode?" modal first (uncheck-then-show), and only actually
+ // gets checked if the operator confirms. Unchecking never needs
+ // confirmation. The checkbox itself is just a pre-start configuration
+ // input (like chaseN/chaseMode) -- the page's blue dx-armed glow is driven
+ // separately, off the RUNNING chaser's real dx_mode state (see
+ // refreshActionsState()), not off this checkbox.
+ document.getElementById('dxModeToggle').addEventListener('change',(e)=>{
+  if(e.target.checked){
+   e.target.checked=false;
+   document.getElementById('dxModal').style.display='flex';
+  }
+ });
+ document.getElementById('dxModalCancel').addEventListener('click',()=>{
+  document.getElementById('dxModal').style.display='none';
+  document.getElementById('dxModeToggle').checked=false;
+ });
+ document.getElementById('dxModalConfirm').addEventListener('click',()=>{
+  document.getElementById('dxModal').style.display='none';
+  document.getElementById('dxModeToggle').checked=true;
+ });
  document.getElementById('btnChaseConfirm').addEventListener('click',async()=>{
   const n=parseFloat(document.getElementById('chaseN').value);
   const mode=document.getElementById('chaseMode').value;
+  const dx_only=document.getElementById('dxModeToggle').checked;
   document.getElementById('chaseConfirmMsg').style.display='none';
   setActionsMsg('starting Automatic CQ…');
-  const r=await postAction('/action/chase/start',{n,mode,confirm:true});
+  const r=await postAction('/action/chase/start',{n,mode,confirm:true,dx_only});
   setActionsMsg(r.ok?('Automatic CQ start requested'+(r.body.rx_autostarted?' (RX auto-started)':'')+
    ' — watch NEXT TX up top'):('Automatic CQ start failed: '+(r.body.error||r.error||r.status)));
   refreshActionsState();
@@ -1490,7 +1512,8 @@ PAGE = (PAGE.replace("__MYCALL__", MYCALL).replace("__MYGRID__", MYGRID)
             .replace("__EVENT_LINES__", str(EVENT_LINES))
             .replace("__WORLD__", world_map.WORLD_PATH)
             .replace("__DRYRUN__", "true" if DRYRUN else "false")
-            .replace("__DEFAULT_MAX_W__", str(DEFAULT_MAX_W)))
+            .replace("__DEFAULT_MAX_W__", str(DEFAULT_MAX_W))
+            .replace("__CALL_PREFIXES_JSON__", json.dumps(dxcc.CALL_PREFIXES)))
 
 def chase_tail(n=EVENT_LINES):
     """Last n lines of chase.log without reading a huge file into memory."""
@@ -1672,6 +1695,39 @@ def _validate_max_watts(mw):
         return False, f"max_watts out of range (0-{ABS_MAX_W})"
     return True, mw
 
+def _build_chase_args(body):
+    """Pure validation for /action/chase/start's POST body. Returns
+    (args_list, desc_str, None) on success, or (None, None, error_msg) on
+    validation failure. No I/O, no subprocess — unit-testable without an
+    HTTP server. dx_only (optional bool, default False) appends --dx-only
+    to args_list and a note to desc; all other validation is unchanged from
+    before this refactor."""
+    if not body.get("confirm"):
+        return None, None, "confirm required"
+    mode = body.get("mode")
+    if mode not in ("qsos", "minutes"):
+        return None, None, "mode must be 'qsos' or 'minutes'"
+    try:
+        n = float(body.get("n"))
+    except (TypeError, ValueError):
+        return None, None, "n must be numeric"
+    dx_only = bool(body.get("dx_only"))
+    if mode == "qsos":
+        n = int(n)
+        if not (1 <= n <= 20):
+            return None, None, "n out of range (1-20 QSOs)"
+        args = ["python3", QSO_PY, "--max-qsos", str(n)]
+        desc = f"{n} QSO(s)"
+    else:
+        if not (1 <= n <= 180):
+            return None, None, "n out of range (1-180 minutes)"
+        args = ["python3", QSO_PY, "--minutes", str(n)]
+        desc = f"{n:g} min budget"
+    if dx_only:
+        args.append("--dx-only")
+        desc += " [DX Mode]"
+    return args, desc, None
+
 class H(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=DATA, **kw)
@@ -1722,7 +1778,7 @@ class H(http.server.SimpleHTTPRequestHandler):
                 pass
             state = {"chaser": _proc_running(QSO_PY), "rxloop": _proc_running(RXLOOP_SH),
                       "ptt": bool(engine.get("tx")), "engine_state": engine.get("state"),
-                      "dryrun": DRYRUN}
+                      "dx_mode": bool(engine.get("dx_mode")), "dryrun": DRYRUN}
             self.send_body(json.dumps(state).encode(), "application/json")
         else:
             self.path = path
@@ -1817,26 +1873,9 @@ class H(http.server.SimpleHTTPRequestHandler):
         self._ok({"stopped": ok, "chaser_killed": killed_chaser})
 
     def _action_chase_start(self, body):
-        if not body.get("confirm"):
-            return self._err(400, "confirm required")
-        mode = body.get("mode")
-        if mode not in ("qsos", "minutes"):
-            return self._err(400, "mode must be 'qsos' or 'minutes'")
-        try:
-            n = float(body.get("n"))
-        except (TypeError, ValueError):
-            return self._err(400, "n must be numeric")
-        if mode == "qsos":
-            n = int(n)
-            if not (1 <= n <= 20):
-                return self._err(400, "n out of range (1-20 QSOs)")
-            args = ["python3", QSO_PY, "--max-qsos", str(n)]
-            desc = f"{n} QSO(s)"
-        else:
-            if not (1 <= n <= 180):
-                return self._err(400, "n out of range (1-180 minutes)")
-            args = ["python3", QSO_PY, "--minutes", str(n)]
-            desc = f"{n:g} min budget"
+        args, desc, err = _build_chase_args(body)
+        if err:
+            return self._err(400, err)
         if DRYRUN:
             log_action(f"[DRYRUN] would start chaser: {' '.join(args)} (>> {CHASELOG})")
             return self._ok({"started": True, "dryrun": True})

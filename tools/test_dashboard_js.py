@@ -9,6 +9,7 @@ doesn't. No radio hardware, no network -- pure local JS evaluation via
 subprocess. Requires `node` on PATH (present on GitHub Actions ubuntu-latest
 runners by default). Run: python3 tools/test_dashboard_js.py
 """
+import importlib.util
 import json
 import os
 import subprocess
@@ -18,15 +19,27 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DASHBOARD = os.path.join(ROOT, "bin", "dashboard.py")
 
 
+def _dashboard_module():
+    """Import bin/dashboard.py as a module to get at its fully-templated
+    PAGE string (CALL_PREFIXES is templated in from bin/dxcc_prefixes.json
+    at import time, not hardcoded in the source text). Safe to import:
+    dashboard.py gates its server startup behind `if __name__=="__main__"`,
+    so nothing but module-level config loading runs."""
+    spec = importlib.util.spec_from_file_location("dashboard", DASHBOARD)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def extract_call_country_js():
     """Slice the CALL_PREFIXES array + callCountry() function verbatim out of
-    dashboard.py's embedded JS, between two stable markers already in the
-    source: the array's declaration and the following US_STATE_BOXES table."""
-    with open(DASHBOARD) as f:
-        src = f.read()
-    start = src.index("const CALL_PREFIXES=[")
-    end = src.index("\nconst US_STATE_BOXES", start)
-    snippet = src[start:end]
+    dashboard.py's rendered PAGE (the same bytes served to the browser),
+    between two stable markers: the array's declaration and the following
+    US_STATE_BOXES table."""
+    page = _dashboard_module().PAGE
+    start = page.index("const CALL_PREFIXES=[")
+    end = page.index("\nconst US_STATE_BOXES", start)
+    snippet = page[start:end]
     assert "function callCountry(call){" in snippet, (
         "callCountry() not found between markers -- dashboard.py layout changed, "
         "update the markers in tools/test_dashboard_js.py")
