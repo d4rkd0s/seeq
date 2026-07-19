@@ -48,6 +48,20 @@ def is_dx_call(call, home_call):
     return bool(home) and bool(theirs) and home != theirs
 
 
+def dx_skip_reason(call, home_call):
+    """Classify why `call` failed the DX filter, for LOGGING only --
+    is_dx_call() above remains the actual gate, unchanged. 'unknown' means
+    at least one side's country couldn't be resolved from the prefix table:
+    a real gap in dxcc_prefixes.json worth closing. 'same' means both sides
+    resolved fine but happen to share a country: correctly filtered, not a
+    data gap. Only meaningful to call when is_dx_call() has already
+    returned False for this pair."""
+    home, theirs = country_for_call(home_call), country_for_call(call)
+    if not home or not theirs:
+        return "unknown"
+    return "same"
+
+
 def logged_countries(calls):
     """{country_for_call(c) for c in calls}, dropping unresolved/unmapped
     calls -- an unmapped call must never poison the set with a false ''

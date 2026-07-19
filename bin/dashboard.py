@@ -71,7 +71,7 @@ CONFIG = {"mycall": MYCALL, "mygrid": MYGRID, "band": _C.get("BAND", ""),
           "antenna": _C.get("ANTENNA", ""),
           "max_repeat": int(_C.get("MAX_REPEAT", 6))}
 
-PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude — __MYCALL__</title>
+PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYCALL__</title>
 <style>
  body{background:#0d1117;color:#c9d1d9;font-family:system-ui,sans-serif;margin:0;padding:14px}
  h1{font-size:18px;margin:0 0 10px;color:#58a6ff} h1 small{color:#8b949e;font-weight:normal}
@@ -94,6 +94,11 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
  /* ---- dx: DX-Mode-specific lines (armed-session banner, DX-filter skips,
     new-country priority decisions) -- matches the DX-armed page-glow blue. ---- */
  #events .dx{color:#58a6ff;font-weight:600}
+ /* ---- unknownctry: a DX-filter skip caused by an UNRESOLVED prefix, not a
+    legitimate same-country match -- these are dxcc_prefixes.json gaps
+    worth closing, so they get their own loud color, distinct from the
+    routine blue .dx skips. ---- */
+ #events .unknownctry{color:#ff2ecc;font-weight:700}
  /* ---- info: session start/stop, breathers, housekeeping -- this app's
     existing #events base color (#d2a8ff) was already this category's de
     facto color via the no-class fallback; made explicit here rather than
@@ -345,7 +350,7 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
 </style></head><body>
 <div id=newCountryGlow></div>
 <div id=newCountryBanner><div class=newCountryBannerTitle>✨ NEW COUNTRY ✨</div><div id=newCountryBannerBody class=newCountryBannerBody></div></div>
-<h1>\U0001F4FB FT8-Claude <small>— __MYCALL__ · __MYGRID__ · RX monitor</small> <span id=stale>⚠ STALE — rx-loop not updating</span></h1>
+<h1>\U0001F4FB COTA <small>— __MYCALL__ · __MYGRID__ · Mode: FT8 · RX monitor</small> <span id=stale>⚠ STALE — rx-loop not updating</span></h1>
 <div id=cockpit>
  <div class=cpitem><span class=cpk>STATE</span><span class="cpv st-" id=cpState>—</span></div>
  <div class=cpitem><span class=cpk>CALLING</span><span class=cpv id=cpCalling title="where the current target is (DXCC-style prefix lookup, best-effort)">—</span></div>
@@ -640,8 +645,8 @@ chmod 600 ~/.config/cota/qrz.key</pre>
      <li><b>Decodes</b> — live table of every FT8 decode this slot.</li>
      <li><b>Next call</b> — the chaser's top-ranked candidate plus runner-ups
       (SNR-ranked); click a callsign chip to request it as the next target.</li>
-     <li><b>TX transparency</b> — the exact message and audio actually keyed, for
-      troubleshooting "why didn't it transmit".</li>
+     <li><b>TX transparency</b> — the exact message and waterfall snippet actually
+      keyed, for troubleshooting "why didn't it transmit".</li>
      <li><b>Actions</b> — start/stop monitoring, arm/confirm/cancel Automatic CQ.</li>
      <li><b>Station config</b> — edit callsign/grid/band/power/antenna from the
       browser; writes back to <code>station.conf</code>.</li>
@@ -649,15 +654,14 @@ chmod 600 ~/.config/cota/qrz.key</pre>
       upload, plus an "Auto sync &amp; upload" toggle that alternates upload and
       refresh every 1 minute (each repeating every 2 minutes) while this tab stays
       open — see its tooltip for details.</li>
-     <li><b>Logbook</b> — confirmed / uploaded / not-yet-synced QSO table, with a
-      manual "Refresh from QRZ" pull.</li>
+     <li><b>Logbook</b> — every local QSO, newest first, with a QRZ status column
+      (confirmed / uploaded / not-yet-synced) and a manual "Refresh from QRZ" pull.</li>
      <li><b>World map</b> — heard stations plotted by grid square (fading over
       ~15 min), your QTH marked, an animated arc to the station currently being
       worked while keyed.</li>
      <li><b>Waterfall</b> — live spectrogram of the receive audio.</li>
-     <li><b>QSO log</b> — this session's completed contacts.</li>
-     <li><b>Automatic CQ events</b> — the chaser's own event diary
-      (<code>data/chase.log</code>).</li>
+     <li><b>Events</b> — the chaser's own event diary (<code>data/chase.log</code>),
+      color-coded by event type.</li>
      <li><b>Dry-run mode</b> — a banner appears when the whole app is running under
       <code>COA_DRYRUN</code>: every action is logged but never actually executed
       (no rig, no network) — used for safely testing the dashboard itself.</li>
@@ -672,6 +676,7 @@ function evClass(l){
  if(/\\bTX #|keyed/.test(l)) return 'tx';
  if(/LOGGED QSO|ANSWERED|QSO complete|DONE:|: done \\(completed/.test(l)) return 'good';
  if(/^ABORT|PTT did not release|STALE|never acknowledged|reporting to someone else/.test(l)) return 'bad';
+ if(/DX Mode: unknown country/.test(l)) return 'unknownctry';
  if(/DX Mode|DX MODE/.test(l)) return 'dx';
  if(/^skip|skip requested|still busy|no answer at|no response from|: fail\\b/.test(l)) return 'skip';
  if(/chaser start|time budget reached|stopping:|session report|breather:/.test(l)) return 'info';
@@ -700,7 +705,8 @@ const LOG_PATTERNS=[
  [/^time budget reached: (\\d+) QSO\\(s\\) in ([\\d.]+) min$/, m=>`⏱️ Time's up — ${m[1]} QSO(s) completed in ${m[2]} min`],
  [/^stopping: (\\d+) targets tried, (\\d+) completed$/, m=>`⏹️ Stopping — tried ${m[1]} stations, completed ${m[2]}`],
  [/^skip CQ (\\S+) (\\S+) — directed CQ not for us$/, m=>`⏭️ Skipped ${m[2]} — CQ was directed elsewhere (${m[1]})`],
- [/^skip (\\S+) — DX Mode: not confirmed DX \\(same\\/unknown country\\)$/, m=>`⏭️ Skipped ${m[1]} — 🌍 DX Mode: same/unknown country`],
+ [/^skip (\\S+) — DX Mode: unknown country \\(prefix gap\\)$/, m=>`⏭️ Skipped ${m[1]} — 🟣 DX Mode: unknown country (prefix table gap)`],
+ [/^skip (\\S+) — DX Mode: same country \\(not DX\\)$/, m=>`⏭️ Skipped ${m[1]} — 🌍 DX Mode: same country (not DX)`],
  [/^skip (\\S+) at (-?\\d+) dB — below SNR floor (-?\\d+) \\(reciprocity\\)$/, m=>`⏭️ Skipped ${m[1]} — too weak (${m[2]} dB, need ${m[3]}+)`],
  [/^DX Mode: prioritizing (\\S+) \\(new country\\) over (\\d+) stronger candidate\\(s\\)$/,
   m=>`🌍 DX Mode: prioritizing ${m[1]} (new country) over ${m[2]} stronger candidate${m[2]==='1'?'':'s'}`],
@@ -748,6 +754,12 @@ function renderEvents(){
 const MW=1000, MH=500;
 let HOME=null, CFG=null;
 let mapPoints={rx:[], tx:null, qso:[]};
+/* ---- fallback grid source for the TX line: many CQs omit a grid, and
+   engine.json's grid field is only ever set from the CQ we originally
+   answered (never updated later in the exchange) -- so a gridless CQ meant
+   the line never drew for that whole chase. Populated from the same recent-
+   decode scan renderRX() already does, keyed by call. ---- */
+let recentGridByCall={};
 function grid2ll(g){                       // Maidenhead 4/6-char -> [lat,lon] (cell center)
  g=(g||'').trim().toUpperCase();
  if(!/^[A-R]{2}[0-9]{2}([A-X]{2})?$/.test(g)) return null;
@@ -1251,6 +1263,9 @@ function renderRX(s){
  }
  document.getElementById('rx').innerHTML=h;
  mapPoints.rx=pts;
+ const grids={};
+ for(const call in seen) grids[call]=seen[call].g;
+ recentGridByCall=grids;
  updateMapZoom();
 }
 /* ---- completed QSOs this session: persistent green lines, unlike the
@@ -1272,20 +1287,38 @@ function renderQSOs(s){
  mapPoints.qso=pts;
  updateMapZoom();
 }
-function renderTX(e){
+/* ---- gate for the TX line: engine.json is a snapshot that's never reset
+   when the chaser exits (see the STATE_LABELS comment above engTick), so a
+   killed/finished run can leave a stale 'calling'/'qso' state -- and a
+   stale red line -- on the map forever. Must agree with chaserRunning, not
+   just engine.json's own state field. ---- */
+function txLineActive(e, chaserRunning){
+ return !!(chaserRunning && e && (e.state==='calling'||e.state==='qso') && e.target);
+}
+/* ---- grid to plot the TX line to: prefer engine.json's own grid (from the
+   CQ we answered), fall back to any grid recently heard for the same call
+   elsewhere (recentGridByCall, from renderRX's decode scan) rather than
+   vanishing the line just because this particular CQ omitted its grid. ---- */
+function resolveTargetGrid(target, engineGrid, recentGridByCall){
+ if(engineGrid && isGrid(engineGrid)) return engineGrid;
+ const g=(recentGridByCall||{})[target];
+ return (g && isGrid(g)) ? g : (engineGrid||'');
+}
+function renderTX(e, chaserRunning){
  const g=document.getElementById('tx');
- if(!e||!HOME||!(e.state==='calling'||e.state==='qso')||!e.target){g.innerHTML='';mapPoints.tx=null;updateMapZoom();return;}
- const ll=targetLatLon(e.target,e.grid); if(!ll){g.innerHTML='';mapPoints.tx=null;updateMapZoom();return;}
+ if(!txLineActive(e,chaserRunning)||!HOME){g.innerHTML='';mapPoints.tx=null;updateMapZoom();return;}
+ const grid=resolveTargetGrid(e.target,e.grid,recentGridByCall);
+ const ll=targetLatLon(e.target,grid); if(!ll){g.innerHTML='';mapPoints.tx=null;updateMapZoom();return;}
  const [x2,y2]=ll2xy(ll), [x1,y1]=HOME;
  mapPoints.tx=[x2,y2];
  const bow=Math.min(80,Math.hypot(x2-x1,y2-y1)*0.25)+8;   // quadratic, bowed poleward
  const d=`M${x1} ${y1} Q${(x1+x2)/2} ${(y1+y2)/2-bow} ${x2} ${y2}`;
  let h='';
  if(e.tx){
-  h+=`<path d="${d}" fill="none" stroke="#f85149" stroke-width="6" opacity="0.18" vector-effect="non-scaling-stroke"/>`;
-  h+=`<path d="${d}" fill="none" stroke="#f85149" stroke-width="1.8" stroke-dasharray="10 7" class=txflow vector-effect="non-scaling-stroke"/>`;
+  h+=`<path d="${d}" fill="none" stroke="#f85149" stroke-width="10" opacity="0.22" vector-effect="non-scaling-stroke"/>`;
+  h+=`<path d="${d}" fill="none" stroke="#f85149" stroke-width="3.2" stroke-dasharray="10 7" class=txflow vector-effect="non-scaling-stroke"/>`;
  }else{
-  h+=`<path d="${d}" fill="none" stroke="#f85149" stroke-width="1.2" opacity="0.45" vector-effect="non-scaling-stroke"/>`;
+  h+=`<path d="${d}" fill="none" stroke="#f85149" stroke-width="2.4" opacity="0.5" vector-effect="non-scaling-stroke"/>`;
  }
  h+=`<circle class=dot-tx cx="${x2}" cy="${y2}" fill="#f85149"/>`;
  h+=`<text x="${x2+6}" y="${y2-6}" class=mlabel fill="#f85149">${esc(e.target||'')}</text>`;
@@ -1381,7 +1414,7 @@ async function engTick(){
   e=r.ok?await r.json():null;
  }catch(err){}
  lastEngine=e;
- renderTX(e);
+ renderTX(e,chaserRunning);
  const st=(e&&e.state)||'';
  const cp=document.getElementById('cpState');
  if(chaserRunning){
@@ -2444,6 +2477,6 @@ class H(http.server.SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("127.0.0.1", PORT), H) as srv:
-        print(f"FT8-Claude dashboard: http://localhost:{PORT}"
+        print(f"COTA dashboard: http://localhost:{PORT}"
               + (" [COA_DRYRUN]" if DRYRUN else ""))
         srv.serve_forever()

@@ -571,7 +571,11 @@ def main():
                 ev(f"skip CQ {c_mod} {c_call} — directed CQ not for us")
                 continue
             if not dx_filter_ok(c_call, dx_mode):
-                ev(f"skip {c_call} — DX Mode: not confirmed DX (same/unknown country)")
+                reason = dxcc.dx_skip_reason(c_call, MYCALL)
+                if reason == "unknown":
+                    ev(f"skip {c_call} — DX Mode: unknown country (prefix gap)")
+                else:
+                    ev(f"skip {c_call} — DX Mode: same country (not DX)")
                 continue
             if d["snr"] < SNR_FLOOR:
                 ev(f"skip {c_call} at {d['snr']} dB — below SNR floor {SNR_FLOOR} (reciprocity)")

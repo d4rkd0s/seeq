@@ -74,6 +74,27 @@ class TestIsNewCountry(unittest.TestCase):
         self.assertFalse(dxcc.is_new_country("QQ9ZZZ", set()))
 
 
+class TestDxSkipReason(unittest.TestCase):
+    """dx_filter_ok()'s single 'not confirmed DX (same/unknown country)'
+    skip message conflated two very different situations: a genuinely
+    same-country station (correctly filtered, nothing to fix) vs. an
+    unresolved prefix (a real gap in dxcc_prefixes.json worth closing).
+    dx_skip_reason() classifies which one it was, for logging only --
+    is_dx_call() remains the actual gate, untouched."""
+
+    def test_same_country_when_both_resolve_and_match(self):
+        self.assertEqual(dxcc.dx_skip_reason("K5XYZ", "W1AW"), "same")
+
+    def test_unknown_when_candidate_country_unresolved(self):
+        self.assertEqual(dxcc.dx_skip_reason("QQ9ZZZ", "W1AW"), "unknown")
+
+    def test_unknown_when_home_country_unresolved(self):
+        self.assertEqual(dxcc.dx_skip_reason("DL1ABC", "QQ9ZZZ"), "unknown")
+
+    def test_unknown_when_both_unresolved(self):
+        self.assertEqual(dxcc.dx_skip_reason("QQ9ZZZ", "ZZ9ZZZ"), "unknown")
+
+
 class TestPythonJsParity(unittest.TestCase):
     """dxcc.py and dashboard.py's callCountry() JS must agree, since both are
     templated from the same bin/dxcc_prefixes.json -- reuses

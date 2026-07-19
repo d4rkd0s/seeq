@@ -140,6 +140,54 @@ def run_pick_new_country_flash(candidates, flashed_calls):
     return json.loads(r.stdout)
 
 
+def extract_is_grid_js():
+    """Slice the one-line isGrid() helper verbatim out of dashboard.py's
+    rendered PAGE -- resolveTargetGrid() depends on it, and rather than
+    duplicate the regex we prefix this in ourselves when testing that
+    function (see run_resolve_target_grid)."""
+    page = _dashboard_module().PAGE
+    start = page.index("function isGrid(")
+    end = page.index("\n", start)
+    return page[start:end]
+
+
+def extract_tx_line_helpers_js():
+    """Slice txLineActive()/resolveTargetGrid() verbatim out of dashboard.py's
+    rendered PAGE, between their declaration and the renderTX() function that
+    consumes them."""
+    page = _dashboard_module().PAGE
+    start = page.index("function txLineActive(")
+    end = page.index("\nfunction renderTX(", start)
+    snippet = page[start:end]
+    assert "resolveTargetGrid" in snippet, (
+        "txLineActive()/resolveTargetGrid() not found between markers -- "
+        "dashboard.py layout changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_tx_line_active(e, chaser_running):
+    js = extract_tx_line_helpers_js()
+    e_json = "null" if e is None else json.dumps(e)
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(txLineActive(%s, %s)));"
+    ) % (e_json, "true" if chaser_running else "false")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
+def run_resolve_target_grid(target, engine_grid, recent_grid_by_call):
+    js = extract_is_grid_js() + "\n" + extract_tx_line_helpers_js()
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(resolveTargetGrid(%s, %s, %s)));"
+    ) % (json.dumps(target), json.dumps(engine_grid), json.dumps(recent_grid_by_call))
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
 class TestCallCountry(unittest.TestCase):
     def test_regression_pre_existing_prefix(self):
         result = run_call_country(["DL1ABC"])
@@ -238,6 +286,53 @@ class TestSecsToNextSlot(unittest.TestCase):
 
     def test_second_slot_mid_point(self):
         self.assertAlmostEqual(run_secs_to_next_slot(22.3), 7.7, places=5)
+
+
+class TestTxLineActive(unittest.TestCase):
+    """The map's red TX line must reflect whether the chaser process is
+    actually alive, not just what engine.json's snapshot last said --
+    engine.json is never reset when the chaser exits, so a killed/finished
+    run can leave a stale 'calling' state on disk (and on the map) forever."""
+
+    def test_calling_with_chaser_running_is_active(self):
+        self.assertTrue(run_tx_line_active({"state": "calling", "target": "OH3JF"}, True))
+
+    def test_qso_state_is_active(self):
+        self.assertTrue(run_tx_line_active({"state": "qso", "target": "OH3JF"}, True))
+
+    def test_stale_state_while_chaser_not_running_is_inactive(self):
+        self.assertFalse(run_tx_line_active({"state": "calling", "target": "OH3JF"}, False))
+
+    def test_hunting_state_is_inactive(self):
+        self.assertFalse(run_tx_line_active({"state": "hunting", "target": None}, True))
+
+    def test_no_target_is_inactive(self):
+        self.assertFalse(run_tx_line_active({"state": "calling", "target": None}, True))
+
+    def test_null_engine_is_inactive(self):
+        self.assertFalse(run_tx_line_active(None, True))
+
+
+class TestResolveTargetGrid(unittest.TestCase):
+    """Many CQs omit their grid, and engine.json's grid field is only ever
+    set from the CQ we originally answered -- so a gridless CQ meant the TX
+    line never drew for that whole chase, even mid-transmission. Fall back to
+    any grid we've recently heard for that same call elsewhere."""
+
+    def test_uses_engine_grid_when_present(self):
+        self.assertEqual(run_resolve_target_grid("OH3JF", "KP20", {}), "KP20")
+
+    def test_falls_back_to_recently_heard_grid_when_engine_grid_blank(self):
+        self.assertEqual(run_resolve_target_grid("OH3JF", "", {"OH3JF": "KP20"}), "KP20")
+
+    def test_engine_grid_wins_over_recent_cache(self):
+        self.assertEqual(run_resolve_target_grid("OH3JF", "KP20", {"OH3JF": "JN58"}), "KP20")
+
+    def test_no_grid_anywhere_returns_empty(self):
+        self.assertEqual(run_resolve_target_grid("OH3JF", "", {}), "")
+
+    def test_ignores_garbage_in_recent_cache(self):
+        self.assertEqual(run_resolve_target_grid("OH3JF", "", {"OH3JF": "RR73"}), "")
 
 
 if __name__ == "__main__":
