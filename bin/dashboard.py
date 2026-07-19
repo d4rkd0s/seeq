@@ -68,7 +68,8 @@ CAT_BAUD = _C.get("CAT_BAUD", "19200")
 CONFIG = {"mycall": MYCALL, "mygrid": MYGRID, "band": _C.get("BAND", ""),
           "dial_hz": int(_C.get("DIAL_HZ", "0") or 0),
           "tx_pwr": _C.get("TX_PWR", ""), "mode": "FT8",
-          "antenna": _C.get("ANTENNA", "")}
+          "antenna": _C.get("ANTENNA", ""),
+          "max_repeat": int(_C.get("MAX_REPEAT", 6))}
 
 PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude — __MYCALL__</title>
 <style>
@@ -86,6 +87,18 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
   overflow-x:auto;max-height:100%;overflow-y:auto;margin:0;color:#d2a8ff}
  #events .tx{color:#f0883e;font-weight:600} #events .good{color:#3fb950;font-weight:600}
  #events .bad{color:#f85149;font-weight:600}
+ /* ---- skip: a graceful "moving on" decision (SNR floor, busy-hold,
+    no-response-after-N-tries) -- distinct from .bad's real operational
+    failures. Reuses the existing "hunting"/QRZ-"uploaded" blue. ---- */
+ #events .skip{color:#56d4dd}
+ /* ---- dx: DX-Mode-specific lines (armed-session banner, DX-filter skips,
+    new-country priority decisions) -- matches the DX-armed page-glow blue. ---- */
+ #events .dx{color:#58a6ff;font-weight:600}
+ /* ---- info: session start/stop, breathers, housekeeping -- this app's
+    existing #events base color (#d2a8ff) was already this category's de
+    facto color via the no-class fallback; made explicit here rather than
+    left implicit. ---- */
+ #events .info{color:#d2a8ff}
  #map{width:100%;display:block;background:#0d1117;border-radius:4px}
  .mlabel{font-size:calc(11px * var(--map-scale, 1));font-family:ui-monospace,monospace;font-weight:600}
  #map .dot-rx{r:calc(2.2px * var(--map-scale, 1))}
@@ -124,6 +137,7 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
  #cpNextTx.tx-soon{color:#f0883e}
  #cpNextTx.tx-live{color:#f85149;animation:pulse .6s ease-in-out infinite}
  #cpNextTx.tx-abort{color:#f85149}
+ #cpNextTx.tx-rough{color:#6e7681}
  #cockpit .spacer{flex:1}
  /* ---- STOP+UNKEY: neutral outline at rest (this is a control, not an alarm);
     full red + a layered "siren" glow/ring animation ONLY while e.tx===true.
@@ -213,6 +227,33 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
  body.dx-armed{background:#0d1420}
  body.dx-armed::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9997;
   box-shadow:inset 0 0 10vw 2vw rgba(31,111,235,.1625)}
+ /* ---- New country flash (DX Mode only): a one-shot, finite yellow pulse --
+    the first non-looping page animation in this file (tx-live/dx-armed/
+    sirenGlow/pageGlow/flow/pulse are all `infinite`). It needs its own DOM
+    element rather than a third body::before/::after layer -- an element can
+    only ever have one ::before and one ::after, both already spoken for.
+    Amber (#e3b341/rgba(227,179,65,*)) reuses this app's existing
+    "attention" accent (see #dryrunBanner) instead of inventing a fourth
+    hue alongside tx-live's red and dx-armed's blue. z-index 10500:
+    unambiguously above tx-live (9998), dx-armed (9997), and the DX-confirm
+    modal (.modalOverlay, 9999) -- with headroom above 10000 too, since a
+    separate in-flight (uncommitted) UI batch uses #helpModal{z-index:
+    10000}; this leaves both efforts room to reconcile later without a
+    collision. JS toggles the .flash/.show classes (added, then removed via
+    setTimeout) rather than an infinite animation -- see
+    pickNewCountryFlash()/triggerNewCountryFlash() near tick(). ---- */
+ #newCountryGlow{position:fixed;inset:0;pointer-events:none;z-index:10500;opacity:0}
+ #newCountryGlow.flash{opacity:1;animation:newCountryPulse 1.4s ease-in-out 2}
+ @keyframes newCountryPulse{0%,100%{box-shadow:inset 0 0 8vw 1.5vw rgba(227,179,65,.55)}
+  50%{box-shadow:inset 0 0 16vw 4vw rgba(227,179,65,.95)}}
+ #newCountryBanner{position:fixed;top:14px;left:50%;z-index:10501;
+  transform:translateX(-50%) translateY(-14px);background:#3d2f00;color:#e3b341;
+  border:2px solid #e3b341;border-radius:8px;padding:12px 22px;text-align:center;
+  box-shadow:0 8px 24px rgba(0,0,0,.6);opacity:0;pointer-events:none;
+  transition:opacity .25s ease-out,transform .25s ease-out}
+ #newCountryBanner.show{opacity:1;transform:translateX(-50%) translateY(0)}
+ .newCountryBannerTitle{font-size:17px;font-weight:800;letter-spacing:.03em}
+ .newCountryBannerBody{font-size:13px;font-weight:600;margin-top:4px;color:#f2d67a}
  /* ---- DX Mode confirm modal: z-index 9999, above both glow layers, so it
     stays fully legible/clickable regardless of TX/DX-armed state. ---- */
  .modalOverlay{position:fixed;inset:0;z-index:9999;background:rgba(1,4,9,.72);
@@ -279,7 +320,6 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
  .widget[data-key=map]{width:380px;height:250px}
  .widget[data-key=decodes]{width:540px;height:320px}
  .widget[data-key=ops]{width:300px;height:320px}
- .widget[data-key=log]{width:300px;height:220px}
  .widget[data-key=events]{width:880px;height:170px}
  .widget[data-key=actions]{width:300px;height:320px}
  .widget[data-key=stationcfg]{width:340px;height:420px}
@@ -303,6 +343,8 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
  select,input[type=number],input[type=text]{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:3px}
  details summary{cursor:pointer} details>.arow{margin:6px 0}
 </style></head><body>
+<div id=newCountryGlow></div>
+<div id=newCountryBanner><div class=newCountryBannerTitle>✨ NEW COUNTRY ✨</div><div id=newCountryBannerBody class=newCountryBannerBody></div></div>
 <h1>\U0001F4FB FT8-Claude <small>— __MYCALL__ · __MYGRID__ · RX monitor</small> <span id=stale>⚠ STALE — rx-loop not updating</span></h1>
 <div id=cockpit>
  <div class=cpitem><span class=cpk>STATE</span><span class="cpv st-" id=cpState>—</span></div>
@@ -351,11 +393,10 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
  <div class=widget data-key=txpanel>
   <div class=wtitle><span class=wname>TX transparency</span><span class=dim id=txPanelSub>no TX yet this session</span><button class=wcollapse></button></div>
   <div class=wbody>
-   <div class=dim style="margin-bottom:6px">The exact message and audio actually keyed — full visibility, for troubleshooting "why didn't it transmit".</div>
+   <div class=dim style="margin-bottom:6px">The exact message and spectrogram actually keyed — full visibility, for troubleshooting "why didn't it transmit".</div>
    <div id=txMsg>—</div>
    <div id=txAbortMsg style="display:none"></div>
    <img id=txwf style="display:none;margin-top:8px" src="">
-   <audio id=txAudio controls style="width:100%;margin-top:8px;display:none"></audio>
   </div>
  </div>
 
@@ -487,13 +528,8 @@ chmod 600 ~/.config/cota/qrz.key</pre>
   <div class=wbody><img id=wf src=/waterfall.png></div>
  </div>
 
- <div class=widget data-key=log>
-  <div class=wtitle><span class=wname>QSO log</span><span class=dim id=qn></span><button class=wcollapse></button></div>
-  <div class=wbody><table id=log><tr><th>call</th><th>band</th><th>grid</th><th>date</th></tr></table></div>
- </div>
-
  <div class=widget data-key=events>
-  <div class=wtitle><span class=wname>Automatic CQ events</span><span class=dim>data/chase.log — engine diary, last __EVENT_LINES__ lines</span>
+  <div class=wtitle><span class=wname>Events</span><span class=dim>data/chase.log — engine diary, last __EVENT_LINES__ lines</span>
    <label class=dim style="cursor:pointer"><input type=checkbox id=evRaw> raw</label>
    <button class=wcollapse></button></div>
   <div class=wbody><pre id=events>no events yet</pre></div>
@@ -634,8 +670,11 @@ chmod 600 ~/.config/cota/qrz.key</pre>
 const DRYRUN = __DRYRUN__;
 function evClass(l){
  if(/\\bTX #|keyed/.test(l)) return 'tx';
- if(/LOGGED QSO|ANSWERED|QSO complete|DONE:/.test(l)) return 'good';
- if(/ABORT|fail|no response|STALE/.test(l)) return 'bad';
+ if(/LOGGED QSO|ANSWERED|QSO complete|DONE:|: done \\(completed/.test(l)) return 'good';
+ if(/^ABORT|PTT did not release|STALE|never acknowledged|reporting to someone else/.test(l)) return 'bad';
+ if(/DX Mode|DX MODE/.test(l)) return 'dx';
+ if(/^skip|skip requested|still busy|no answer at|no response from|: fail\\b/.test(l)) return 'skip';
+ if(/chaser start|time budget reached|stopping:|session report|breather:/.test(l)) return 'info';
  return '';
 }
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -653,15 +692,18 @@ const LOG_PATTERNS=[
  [/^ABORT: PTT not idle at start$/, ()=>`🛑 Radio was already transmitting at startup — refused to begin`],
  [/^TX #(\\d+) '(.+)' @ (\\d+) Hz \\(\\d+x this msg, ~13\\.5 s keyed\\)$/, m=>`📡 Transmitting #${m[1]}: "${m[2]}" @ ${m[3]} Hz`],
  [/^unkeyed, PTT verify: (\\S+)$/, m=>m[1]==='0'?`🔇 Unkeyed — radio confirmed off air`:`⚠️ Unkeyed, but PTT still reads "${m[1]}" — check the radio`],
- [/^LOGGED QSO: (\\S+) (\\S+) sent (\\S+) rcvd (\\S+) -> wsjtx_log\\.adi$/, m=>`✅ QSO logged: ${m[1]} (${m[2]}) — sent ${m[3]}, received ${m[4]}`],
+ [/^LOGGED QSO: (\\S+) (\\S*) sent (\\S+) rcvd (\\S+) -> wsjtx_log\\.adi$/, m=>`✅ QSO logged: ${m[1]}${m[2]?` (${m[2]})`:''} — sent ${m[3]}, received ${m[4]}`],
  [/^session report written: (.+)$/, ()=>`📝 Session report saved`],
  [/^WARN: could not write session report: (.+)$/, m=>`⚠️ Couldn't save session report: ${m[1]}`],
- [/^chaser start: target (\\d+) QSO\\(s\\)(?: \\/ ([\\d.]+) min budget)?, dial (\\d+), watchdog ([\\d.]+)s, repeat cap (\\d+)$/,
-  m=>`▶️ Automatic CQ started — aiming for ${m[1]} QSO(s)${m[2]?` / ${m[2]} min budget`:''}, dial ${(m[3]/1e6).toFixed(3)} MHz`],
+ [/^chaser start: target (\\d+) QSO\\(s\\)(?: \\/ ([\\d.]+) min budget)?( \\[DX MODE\\])?, dial (\\d+), watchdog ([\\d.]+)s, repeat cap (\\d+)$/,
+  m=>`▶️ Automatic CQ started — aiming for ${m[1]} QSO(s)${m[2]?` / ${m[2]} min budget`:''}${m[3]?' — 🌍 DX Mode':''}, dial ${(m[4]/1e6).toFixed(3)} MHz`],
  [/^time budget reached: (\\d+) QSO\\(s\\) in ([\\d.]+) min$/, m=>`⏱️ Time's up — ${m[1]} QSO(s) completed in ${m[2]} min`],
  [/^stopping: (\\d+) targets tried, (\\d+) completed$/, m=>`⏹️ Stopping — tried ${m[1]} stations, completed ${m[2]}`],
  [/^skip CQ (\\S+) (\\S+) — directed CQ not for us$/, m=>`⏭️ Skipped ${m[2]} — CQ was directed elsewhere (${m[1]})`],
+ [/^skip (\\S+) — DX Mode: not confirmed DX \\(same\\/unknown country\\)$/, m=>`⏭️ Skipped ${m[1]} — 🌍 DX Mode: same/unknown country`],
  [/^skip (\\S+) at (-?\\d+) dB — below SNR floor (-?\\d+) \\(reciprocity\\)$/, m=>`⏭️ Skipped ${m[1]} — too weak (${m[2]} dB, need ${m[3]}+)`],
+ [/^DX Mode: prioritizing (\\S+) \\(new country\\) over (\\d+) stronger candidate\\(s\\)$/,
+  m=>`🌍 DX Mode: prioritizing ${m[1]} (new country) over ${m[2]} stronger candidate${m[2]==='1'?'':'s'}`],
  [/^TARGET (\\S+) (\\S*) \\(CQ (-?\\d+) dB @ (\\d+) Hz, their parity (even|odd)\\) -> our offset (\\d+) Hz \\(gap (\\d+) Hz\\)$/,
   m=>`🎯 Targeting ${m[1]}${m[2]?` (${m[2]})`:''} — heard at ${m[3]} dB, calling on ${m[6]} Hz`],
  [/^skip requested for (\\S+) — abandoning target$/, m=>`⏭️ You skipped ${m[1]} — moving on`],
@@ -1255,6 +1297,14 @@ let lastEngine=null, lastTxFlag=false, sawTxContent=false;
 /* ---- NEXT TX cockpit countdown: called from engTick (fresh fetch) AND from
    a fast local timer (cached lastEngine) so the countdown ticks smoothly
    between the 2 s polls without hitting the server any harder. ---- */
+/* ---- rough time-to-next-call: FT8's 15 s slot cadence is fully
+   clock-deterministic, so this needs no engine/server data at all -- pure
+   function of wall-clock time, extracted for Node-harness testing. Used
+   only as a fallback estimate (updateNextTx's final else) while Automatic
+   CQ is running but no real next_tx_epoch is scheduled yet. ---- */
+function secsToNextSlot(nowEpochSec){
+ return 15 - (nowEpochSec % 15);
+}
 function updateNextTx(e, tx, st){
  const el=document.getElementById('cpNextTx');
  el.className='cpv';
@@ -1268,30 +1318,40 @@ function updateNextTx(e, tx, st){
    el.textContent=secs>0?('TX in '+secs.toFixed(1)+'s'):'KEYING…';
    el.classList.add('tx-soon');
   }else el.textContent='—';
+ }else if(chaserRunning){
+  // rough estimate only -- no target locked in yet, just the next FT8 slot
+  // boundary; distinct styling (dim, not tx-soon's orange) so it never
+  // reads as an actually-scheduled key-up.
+  const secs=secsToNextSlot(Date.now()/1000);
+  el.textContent='~'+secs.toFixed(1)+'s to next slot';
+  el.classList.add('tx-rough');
  }else el.textContent='—';
 }
 function nextTxFastTick(){ if(lastEngine) updateNextTx(lastEngine, !!lastEngine.tx, lastEngine.state||''); }
 
-/* ---- TX transparency panel: exact message + audio actually keyed.
+/* ---- TX transparency panel: exact message + spectrogram actually keyed.
    tx_msg/tx_offset are set BEFORE key-up (so the countdown window already
    previews what's about to go out) and stay put until the next attempt —
    deliberately separate from "msg", which doubles as the abort-reason text
-   and would otherwise show stale reasons here as if they were content. Media
-   (image+audio) reloads only the first time we see any TX content, and again
-   each time a new transmission starts — never mid-playback otherwise. ---- */
+   and would otherwise show stale reasons here as if they were content. The
+   image reloads only the first time we see any TX content, and again each
+   time a new transmission starts. No in-page audio playback -- the laptop's
+   USB audio interface is already claimed by the live TX/RX chain, so
+   browser playback through the same device is unreliable; the raw
+   recording is still saved server-side at /tx.wav for offline debugging,
+   just not wired up as an in-page <audio> control. ---- */
 function updateTxPanel(e, tx, st){
  const msgEl=document.getElementById('txMsg'), subEl=document.getElementById('txPanelSub'),
-       wfEl=document.getElementById('txwf'), audioEl=document.getElementById('txAudio'),
+       wfEl=document.getElementById('txwf'),
        abortEl=document.getElementById('txAbortMsg');
  const hasContent=!!(e && e.tx_msg);
  if(hasContent){
   msgEl.textContent=e.tx_msg+(e.tx_offset!=null?` @ ${e.tx_offset} Hz`:'');
   msgEl.className=tx?'tx-live':'';
   subEl.textContent=tx?'TRANSMITTING NOW':'last TX this session';
-  wfEl.style.display='block'; audioEl.style.display='block';
+  wfEl.style.display='block';
   if(!sawTxContent || (tx && !lastTxFlag)){
    wfEl.src='/tx_waterfall.png?t='+Date.now();
-   audioEl.src='/tx.wav?t='+Date.now();
   }
   sawTxContent=true;
  }
@@ -1351,7 +1411,7 @@ async function engTick(){
  const stepEl=document.getElementById('cpQsoStep');
  const step=pursuing && e && QSO_STEPS[e.qso_step];
  if(step){
-  stepEl.textContent=`${step.n} of ${QSO_STEP_TOTAL} — ${step.label}`;
+  stepEl.textContent=`${step.n} of ${QSO_STEP_TOTAL} — ${step.label} (call ${(e.msg_tx_count||0)+1} of ${(CFG&&CFG.max_repeat)||6})`;
   stepEl.classList.add('active');
  }else{
   stepEl.textContent='—';
@@ -1370,6 +1430,34 @@ async function engTick(){
  lastEngineState=stl||lastEngineState;
 }
 
+/* ---- New country flash (DX Mode only): pure decision fn factored out for
+   Node-harness testing (tools/test_dashboard_js.py), mirroring the existing
+   CALL_PREFIXES/callCountry() extraction pattern. candidates is s.candidates
+   (already includes next_call as element 0 -- see parse_decodes.py's
+   ranked/candidates, they share the same tagged dicts) tagged server-side
+   with country/new_country by dxcc.logged_countries()/is_new_country().
+   flashedCalls is a plain array of calls already flashed this page-load.
+   Returns the first still-un-flashed new-country candidate, or null. ---- */
+function pickNewCountryFlash(candidates, flashedCalls){
+ for(const c of (candidates||[])){
+  if(c && c.new_country && c.call && !flashedCalls.includes(c.call)) return c;
+ }
+ return null;
+}
+let flashedNewCountryCalls=[], newCountryGlowTimer=null, newCountryBannerTimer=null;
+function triggerNewCountryFlash(c){
+ flashedNewCountryCalls.push(c.call);
+ const glow=document.getElementById('newCountryGlow');
+ glow.classList.remove('flash'); void glow.offsetWidth;
+ glow.classList.add('flash');
+ clearTimeout(newCountryGlowTimer);
+ newCountryGlowTimer=setTimeout(()=>glow.classList.remove('flash'), 3000);
+ document.getElementById('newCountryBannerBody').textContent=`${c.call} — ${c.country}`;
+ document.getElementById('newCountryBanner').classList.add('show');
+ clearTimeout(newCountryBannerTimer);
+ newCountryBannerTimer=setTimeout(()=>document.getElementById('newCountryBanner').classList.remove('show'), 5000);
+ fireAlert('New country', `${c.call} — ${c.country}`);
+}
 async function tick(){
  try{
   const r=await fetch('/status.json?t='+Date.now()); const s=await r.json();
@@ -1399,17 +1487,24 @@ async function tick(){
   document.getElementById('cand').innerHTML=s.candidates&&s.candidates.length>1
    ?'also: '+s.candidates.slice(1).map(c=>`<button class=callchip data-call="${esc(c.call)}">${esc(c.call)} ${c.snr}dB</button>`).join(' ')
    :'';
+  /* ---- new country flash: gated on body.dx-armed, same source of truth
+     the blue glow layer uses -- edge-triggered via pickNewCountryFlash's
+     dedup, not level-triggered on every poll. ---- */
+  if(document.body.classList.contains('dx-armed')){
+   const hit=pickNewCountryFlash(s.candidates, flashedNewCountryCalls);
+   if(hit) triggerNewCountryFlash(hit);
+  }
   document.getElementById('me').innerHTML=s.calling_me&&s.calling_me.length?s.calling_me.map(d=>`<span class=me>${d.msg} (${d.snr} dB)</span>`).join('<br>'):'nobody yet';
-  document.getElementById('qn').textContent=' '+s.qso_count+' total';
-  /* ---- alerts (4.3): new QSO logged (qso_count increased) ---- */
+  /* ---- alerts (4.3): new QSO logged (qso_count increased). Also nudges
+     the Logbook widget (now the sole QSO table -- see the removed "QSO
+     log" widget) to refresh immediately instead of waiting up to 15 s for
+     its own setInterval(loadLogbook,15000) tick. ---- */
   if(lastQsoCount!==null && s.qso_count>lastQsoCount && s.qsos && s.qsos.length){
    const q0=s.qsos[s.qsos.length-1];
    fireAlert('QSO logged', `${q0.call} ${q0.grid||''}`.trim());
+   loadLogbook();
   }
   lastQsoCount=s.qso_count;
-  let q='<tr><th>call</th><th>band</th><th>grid</th><th>date</th></tr>';
-  for(const x of [...(s.qsos||[])].reverse()) q+=`<tr><td>${x.call}</td><td>${x.band}</td><td>${x.grid}</td><td>${x.date}</td></tr>`;
-  document.getElementById('log').innerHTML=q;
   renderRX(s);
   renderQSOs(s);
  }catch(e){document.getElementById('stale').style.display='inline';}
@@ -1708,7 +1803,7 @@ function resetLayout(){
  document.querySelectorAll('#dash > .widget').forEach(w=>{
   w.style.width=''; w.style.height=''; w.classList.remove('collapsed');
  });
- const order=['status','decodes','ops','actions','map','waterfall','log','events'];
+ const order=['status','decodes','ops','actions','map','waterfall','logbook','events'];
  const dash=document.getElementById('dash');
  for(const k of order){ const el=document.querySelector(`.widget[data-key="${k}"]`); if(el) dash.appendChild(el); }
  setMapMode('auto');

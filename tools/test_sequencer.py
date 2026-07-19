@@ -5,7 +5,7 @@ Covers: pick_offset parity filtering / ceiling / exclusion / higher-freq
 preference, directed-CQ parsing + filter policy, busy-detection, and
 stalled-CQ detection. Run: python3 tools/test_sequencer.py
 """
-import os, sys, unittest
+import os, sys, tempfile, unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin"))
 import qso
@@ -280,6 +280,119 @@ class TestArgParsing(unittest.TestCase):
         a = qso.build_argparser().parse_args(["--max-qsos", "3", "--minutes", "5"])
         self.assertEqual(a.max_qsos, 3)
         self.assertEqual(a.minutes, 5.0)
+
+
+class TestRankCqs(unittest.TestCase):
+    """rank_cqs(cqs, dx_mode, logged_countries, pileup_penalty) — DX Mode's
+    hard-priority candidate ranking, extracted out of main()'s hunt loop so
+    it's unit-testable without radio I/O. Pure: synthetic (decode, call,
+    grid) tuples, no ADIF files, no decode history."""
+
+    def cq(self, call, snr):
+        return ({"snr": snr}, call, "")
+
+    def test_dx_mode_off_pure_snr_ranking(self):
+        # logged_countries is ignored entirely when dx_mode is False --
+        # regression proof the non-DX-mode path is unchanged.
+        cqs = [self.cq("DL1ABC", -18), self.cq("K5XYZ", -3)]
+        logged = {"Germany"}  # would matter if dx_mode were True; must not here
+        ranked = qso.rank_cqs(cqs, False, logged, {})
+        self.assertEqual([c for _, c, _ in ranked], ["K5XYZ", "DL1ABC"])
+
+    def test_dx_mode_on_new_country_beats_higher_snr_old_country(self):
+        # the key hard-priority proof: a WEAK new-country candidate outranks
+        # a STRONG already-logged-country candidate.
+        cqs = [self.cq("K5XYZ", -3), self.cq("DL1ABC", -18)]
+        logged = {"United States"}  # Germany not logged -> DL1ABC is new
+        ranked = qso.rank_cqs(cqs, True, logged, {})
+        self.assertEqual([c for _, c, _ in ranked], ["DL1ABC", "K5XYZ"])
+
+    def test_dx_mode_on_ties_broken_by_snr_within_group(self):
+        cqs = [self.cq("DL1ABC", -18), self.cq("F5AAA", -5),
+               self.cq("K5XYZ", -3), self.cq("W1AW", -20)]
+        logged = {"United States"}  # DL1ABC, F5AAA both new; K5XYZ, W1AW both old
+        ranked = qso.rank_cqs(cqs, True, logged, {})
+        self.assertEqual([c for _, c, _ in ranked], ["F5AAA", "DL1ABC", "K5XYZ", "W1AW"])
+
+    def test_dx_mode_on_no_new_countries_falls_back_to_snr_order(self):
+        cqs = [self.cq("K5XYZ", -3), self.cq("W1AW", -18)]
+        logged = {"United States"}
+        ranked = qso.rank_cqs(cqs, True, logged, {})
+        self.assertEqual([c for _, c, _ in ranked], ["K5XYZ", "W1AW"])
+
+    def test_pileup_penalty_applied_within_group(self):
+        cqs = [self.cq("DL1ABC", -10), self.cq("F5AAA", -8)]
+        logged = set()  # both new
+        # F5AAA has a heavier pileup penalty, should drop below DL1ABC
+        ranked = qso.rank_cqs(cqs, True, logged, {"F5AAA": 6, "DL1ABC": 0})
+        self.assertEqual([c for _, c, _ in ranked], ["DL1ABC", "F5AAA"])
+
+
+class TestDxPriorityBump(unittest.TestCase):
+    """dx_priority_bump(cqs, dx_mode, logged_countries, pileup_penalty) —
+    detects whether rank_cqs()'s hard-priority reorder actually changed this
+    cycle's top pick, so the hunt loop can log it (only when it mattered,
+    not every cycle). Pure, same synthetic-tuple style as TestRankCqs."""
+
+    def cq(self, call, snr):
+        return ({"snr": snr}, call, "")
+
+    def test_dx_mode_off_returns_none(self):
+        # even though DL1ABC would out-prioritize K5XYZ if dx_mode were on,
+        # dx_mode False must never report a bump.
+        cqs = [self.cq("K5XYZ", -3), self.cq("DL1ABC", -18)]
+        logged = {"United States"}
+        self.assertIsNone(qso.dx_priority_bump(cqs, False, logged, {}))
+
+    def test_no_candidates_returns_none(self):
+        self.assertIsNone(qso.dx_priority_bump([], True, set(), {}))
+
+    def test_new_country_promoted_over_one_stronger_returns_bump(self):
+        cqs = [self.cq("K5XYZ", -3), self.cq("DL1ABC", -18)]
+        logged = {"United States"}  # Germany not logged -> DL1ABC is new, weaker
+        self.assertEqual(qso.dx_priority_bump(cqs, True, logged, {}),
+                          ("DL1ABC", 1))
+
+    def test_new_country_promoted_over_two_stronger_returns_correct_count(self):
+        cqs = [self.cq("K5XYZ", -3), self.cq("W1AW", -5), self.cq("DL1ABC", -18)]
+        logged = {"United States"}  # both US calls outrank DL1ABC on plain SNR
+        self.assertEqual(qso.dx_priority_bump(cqs, True, logged, {}),
+                          ("DL1ABC", 2))
+
+    def test_new_country_already_top_pick_returns_none(self):
+        # DL1ABC is both the strongest signal AND the new country -- rank_cqs
+        # doesn't actually move anything, so nothing is worth logging.
+        cqs = [self.cq("DL1ABC", -3), self.cq("K5XYZ", -18)]
+        logged = {"United States"}
+        self.assertIsNone(qso.dx_priority_bump(cqs, True, logged, {}))
+
+    def test_no_new_countries_returns_none(self):
+        cqs = [self.cq("K5XYZ", -3), self.cq("W1AW", -18)]
+        logged = {"United States"}
+        self.assertIsNone(qso.dx_priority_bump(cqs, True, logged, {}))
+
+
+class TestAllTimeWorkedCalls(unittest.TestCase):
+    def test_returns_all_calls_regardless_of_date(self):
+        with tempfile.TemporaryDirectory() as d:
+            adif_path = os.path.join(d, "log.adi")
+            with open(adif_path, "w") as f:
+                f.write("<call:6>DL1ABC<qso_date:8>20250101<eor>"
+                        "<call:5>W1ABC<qso_date:8>20260101<eor>")
+            old_adif = qso.ADIF
+            qso.ADIF = adif_path
+            try:
+                self.assertEqual(qso.all_time_worked_calls(), {"DL1ABC", "W1ABC"})
+            finally:
+                qso.ADIF = old_adif
+
+    def test_missing_file_returns_empty_set(self):
+        old_adif = qso.ADIF
+        qso.ADIF = "/nonexistent/path/log.adi"
+        try:
+            self.assertEqual(qso.all_time_worked_calls(), set())
+        finally:
+            qso.ADIF = old_adif
 
 
 if __name__ == "__main__":
