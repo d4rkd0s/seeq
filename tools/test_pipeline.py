@@ -187,11 +187,16 @@ class TestParseDecodes(unittest.TestCase):
 
     SCRIPT = os.path.join(ROOT, "bin", "parse_decodes.py")
 
-    def run_parser(self, stdin_text, date="260711", slot="143000"):
+    def run_parser(self, stdin_text, date="260711", slot="143000", adif_text=""):
         with tempfile.TemporaryDirectory() as d:
+            adif_dir = os.path.join(d, ".local", "share", "WSJT-X")
+            os.makedirs(adif_dir, exist_ok=True)
+            with open(os.path.join(adif_dir, "wsjtx_log.adi"), "w") as f:
+                f.write(adif_text)
+            env = dict(os.environ, HOME=d)
             r = subprocess.run(
                 [sys.executable, self.SCRIPT, date, slot],
-                input=stdin_text, capture_output=True, text=True, cwd=d, timeout=30)
+                input=stdin_text, capture_output=True, text=True, cwd=d, env=env, timeout=30)
             self.assertEqual(r.returncode, 0, r.stderr)
             with open(decode_store.hour_file(d, date, slot)) as f:
                 decoded = [json.loads(l) for l in f]
@@ -218,6 +223,26 @@ class TestParseDecodes(unittest.TestCase):
         decoded, status = self.run_parser("garbage\n\nalso garbage\n", slot="150000")
         self.assertEqual(decoded, [])
         self.assertEqual(status["slot_decodes"], 0)
+
+    def test_candidate_country_is_new_when_not_in_log(self):
+        jt9_stdout = "000000  -10  0.5  1200 ~  CQ DL2XYZ JN58\n"
+        adif = "<call:5>W1ABC<band:3>20m<qso_date:8>20260101<gridsquare:4>FN31<eor>"
+        decoded, status = self.run_parser(jt9_stdout, adif_text=adif)
+        self.assertEqual(status["next_call"]["call"], "DL2XYZ")
+        self.assertEqual(status["next_call"]["country"], "Germany")
+        self.assertTrue(status["next_call"]["new_country"])
+        self.assertTrue(status["candidates"][0]["new_country"])
+
+    def test_candidate_country_is_not_new_when_country_already_logged(self):
+        # DL3ABC is a *different* specific callsign than the one already
+        # logged (DL1ABC) -- same country, proving country-level (not
+        # call-level) matching is what drives new_country.
+        jt9_stdout = "000000   -9  0.4  1400 ~  CQ DL3ABC JN59\n"
+        adif = "<call:6>DL1ABC<band:3>20m<qso_date:8>20260101<gridsquare:4>JO62<eor>"
+        decoded, status = self.run_parser(jt9_stdout, adif_text=adif)
+        self.assertEqual(status["next_call"]["call"], "DL3ABC")
+        self.assertEqual(status["next_call"]["country"], "Germany")
+        self.assertFalse(status["next_call"]["new_country"])
 
 
 if __name__ == "__main__":

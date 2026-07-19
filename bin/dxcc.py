@@ -46,3 +46,24 @@ def is_dx_call(call, home_call):
     if it were confirmed DX."""
     home, theirs = country_for_call(home_call), country_for_call(call)
     return bool(home) and bool(theirs) and home != theirs
+
+
+def logged_countries(calls):
+    """{country_for_call(c) for c in calls}, dropping unresolved/unmapped
+    calls -- an unmapped call must never poison the set with a false ''
+    entry that could make some other candidate look "not new" by accident."""
+    countries = set()
+    for call in calls:
+        country = country_for_call(call)
+        if country:
+            countries.add(country)
+    return countries
+
+
+def is_new_country(call, logged):
+    """True only when `call` resolves to a KNOWN country not already in
+    `logged`. Fails CLOSED like is_dx_call: an unresolved call is never
+    claimed as a new country -- that would be a false celebration (or, for
+    ranking, a false priority boost)."""
+    country = country_for_call(call)
+    return bool(country) and country not in logged

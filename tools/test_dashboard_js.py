@@ -63,6 +63,55 @@ def run_call_country(calls):
     return json.loads(r.stdout)
 
 
+def extract_secs_to_next_slot_js():
+    """Slice secsToNextSlot() verbatim out of dashboard.py's rendered PAGE,
+    between its declaration and the updateNextTx() function that uses it."""
+    page = _dashboard_module().PAGE
+    start = page.index("function secsToNextSlot(")
+    end = page.index("\nfunction updateNextTx(", start)
+    snippet = page[start:end]
+    assert "return" in snippet, (
+        "secsToNextSlot() not found between markers -- dashboard.py layout "
+        "changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_secs_to_next_slot(now_epoch_sec):
+    js = extract_secs_to_next_slot_js()
+    script = js + "\nprocess.stdout.write(JSON.stringify(secsToNextSlot(%r)));" % now_epoch_sec
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
+def extract_pick_new_country_flash_js():
+    """Slice the pickNewCountryFlash() edge-trigger/dedup function verbatim
+    out of dashboard.py's rendered PAGE, between two stable markers: its
+    declaration and the tick() function it feeds."""
+    page = _dashboard_module().PAGE
+    start = page.index("function pickNewCountryFlash(")
+    end = page.index("\nasync function tick(){", start)
+    snippet = page[start:end]
+    assert "new_country" in snippet, (
+        "pickNewCountryFlash() not found between markers -- dashboard.py "
+        "layout changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_pick_new_country_flash(candidates, flashed_calls):
+    """Evaluate the real pickNewCountryFlash() JS (via Node). Returns the
+    picked candidate dict, or None."""
+    js = extract_pick_new_country_flash_js()
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(pickNewCountryFlash(%s, %s)));"
+    ) % (json.dumps(candidates), json.dumps(flashed_calls))
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
 class TestCallCountry(unittest.TestCase):
     def test_regression_pre_existing_prefix(self):
         result = run_call_country(["DL1ABC"])
@@ -92,6 +141,47 @@ class TestCallCountry(unittest.TestCase):
     def test_unknown_prefix_returns_empty_string(self):
         result = run_call_country(["QQ9ZZZ"])
         self.assertEqual(result["QQ9ZZZ"], "")
+
+
+class TestPickNewCountryFlash(unittest.TestCase):
+    DL = {"call": "DL2XYZ", "grid": "JN58", "snr": -10, "freq": 1200, "slot": "143000",
+          "country": "Germany", "new_country": True}
+    W = {"call": "W1ABC", "grid": "FN31", "snr": -5, "freq": 900, "slot": "143000",
+         "country": "United States", "new_country": False}
+
+    def test_picks_first_new_country_candidate(self):
+        result = run_pick_new_country_flash([self.W, self.DL], [])
+        self.assertEqual(result["call"], "DL2XYZ")
+
+    def test_returns_none_when_no_new_country_candidates(self):
+        self.assertIsNone(run_pick_new_country_flash([self.W], []))
+
+    def test_skips_already_flashed_call(self):
+        self.assertIsNone(run_pick_new_country_flash([self.DL], ["DL2XYZ"]))
+
+    def test_finds_new_country_candidate_beyond_first(self):
+        # a rare country buried at candidate #3 by SNR is still worth flashing
+        other = {"call": "K5AAA", "grid": "EM10", "snr": -3, "freq": 800,
+                  "slot": "143000", "country": "United States", "new_country": False}
+        result = run_pick_new_country_flash([self.W, other, self.DL], [])
+        self.assertEqual(result["call"], "DL2XYZ")
+
+    def test_empty_candidates_returns_none(self):
+        self.assertIsNone(run_pick_new_country_flash([], []))
+
+
+class TestSecsToNextSlot(unittest.TestCase):
+    def test_at_slot_boundary_returns_full_slot(self):
+        self.assertEqual(run_secs_to_next_slot(0), 15)
+
+    def test_mid_slot(self):
+        self.assertAlmostEqual(run_secs_to_next_slot(14.5), 0.5, places=5)
+
+    def test_exact_boundary_wraps_to_full_slot_not_zero(self):
+        self.assertEqual(run_secs_to_next_slot(15), 15)
+
+    def test_second_slot_mid_point(self):
+        self.assertAlmostEqual(run_secs_to_next_slot(22.3), 7.7, places=5)
 
 
 if __name__ == "__main__":

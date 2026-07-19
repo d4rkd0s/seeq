@@ -45,6 +45,35 @@ class TestIsDxCall(unittest.TestCase):
         self.assertFalse(dxcc.is_dx_call("DL1ABC", "QQ9ZZZ"))
 
 
+class TestLoggedCountries(unittest.TestCase):
+    def test_resolves_known_calls_to_country_set(self):
+        self.assertEqual(dxcc.logged_countries(["DL1ABC", "DL9XYZ", "W1AW"]),
+                          {"Germany", "United States"})
+
+    def test_drops_unmapped_calls(self):
+        self.assertEqual(dxcc.logged_countries(["QQ9ZZZ"]), set())
+
+    def test_empty_input_returns_empty_set(self):
+        self.assertEqual(dxcc.logged_countries([]), set())
+
+
+class TestIsNewCountry(unittest.TestCase):
+    def test_false_when_country_already_logged(self):
+        logged = dxcc.logged_countries(["DL1ABC"])
+        self.assertFalse(dxcc.is_new_country("DL9XYZ", logged))  # same country, different call
+
+    def test_true_when_country_not_logged(self):
+        logged = dxcc.logged_countries(["W1AW"])
+        self.assertTrue(dxcc.is_new_country("DL1ABC", logged))
+
+    def test_false_when_call_unmapped(self):
+        logged = dxcc.logged_countries(["W1AW"])
+        self.assertFalse(dxcc.is_new_country("QQ9ZZZ", logged))  # fails closed
+
+    def test_false_when_logged_empty_and_call_unmapped(self):
+        self.assertFalse(dxcc.is_new_country("QQ9ZZZ", set()))
+
+
 class TestPythonJsParity(unittest.TestCase):
     """dxcc.py and dashboard.py's callCountry() JS must agree, since both are
     templated from the same bin/dxcc_prefixes.json -- reuses

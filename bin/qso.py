@@ -57,7 +57,11 @@ _engine = {"utc": "", "state": "init", "target": None, "grid": None,
            # qso_step: the inner state machine's own "call"/"rrpt"/"b73"
            # value, mirrored for the dashboard's step-of-4 progress display.
            # Display only — nothing reads this back into control flow.
-           "qso_step": None}
+           "qso_step": None,
+           # msg_tx_count: tx_count[msg] for the CURRENT message (sends so
+           # far, before this cycle's attempt) -- the same counter transmit()
+           # already enforces against MAX_REPEAT, just mirrored for display.
+           "msg_tx_count": None}
 
 def write_engine_state(**kw):
     """Publish engine state for the dashboard map. Atomic (tmp + os.replace);
@@ -251,6 +255,54 @@ def worked_calls():
     except FileNotFoundError:
         pass
     return w
+
+def all_time_worked_calls():
+    """Every callsign ever logged, all-time (no day filter) -- distinct from
+    worked_calls()'s today-only dupe-rule set. Used only for DX Mode's
+    new-country ranking boost, never for the dupe check itself."""
+    w = set()
+    try:
+        adi = open(ADIF, errors="ignore").read()
+        for rec in adi.split("<eor>"):
+            c = re.search(r"<call:(\d+)>", rec, re.I)
+            if c:
+                w.add(rec[c.end():c.end() + int(c.group(1))].upper())
+    except FileNotFoundError:
+        pass
+    return w
+
+def rank_cqs(cqs, dx_mode, logged_countries, pileup_penalty):
+    """cqs: list of (decode_dict, call, grid) tuples. pileup_penalty: dict
+    call -> dB penalty (6 * competitor count). Returns a NEW sorted list,
+    best-first. dx_mode False: pure SNR-minus-pileup (today's behavior,
+    unchanged). dx_mode True: HARD priority -- any candidate whose country
+    is not in `logged_countries` ranks ahead of any candidate whose country
+    already is, regardless of signal strength; SNR-minus-pileup only orders
+    within each of those two groups."""
+    def score(x):
+        return -(x[0]["snr"] - pileup_penalty.get(x[1], 0))
+    if dx_mode:
+        return sorted(cqs, key=lambda x: (0 if dxcc.is_new_country(x[1], logged_countries) else 1, score(x)))
+    return sorted(cqs, key=score)
+
+def dx_priority_bump(cqs, dx_mode, logged_countries, pileup_penalty):
+    """Detects whether DX Mode's hard-priority reorder (rank_cqs) actually
+    changed this cycle's outcome: rank_cqs can rank a weaker new-country
+    candidate ahead of a stronger already-logged-country one. Returns
+    (top_call, n_stronger) when that happened -- n_stronger is how many
+    candidates outrank top_call under plain SNR-minus-pileup order, i.e. how
+    many stronger candidates got jumped. Returns None when dx_mode is off,
+    cqs is empty, or the DX-mode top pick is unchanged from the plain-SNR
+    top pick (rank_cqs didn't move anything this cycle, nothing worth
+    logging). Pure -- only used to decide whether to log a line; rank_cqs()
+    itself already performs the real reorder used for selection, this never
+    affects it."""
+    if not dx_mode or not cqs:
+        return None
+    dx_top = rank_cqs(cqs, True, logged_countries, pileup_penalty)[0][1]
+    plain_order = [c for _, c, _ in rank_cqs(cqs, False, logged_countries, pileup_penalty)]
+    n_stronger = plain_order.index(dx_top)
+    return (dx_top, n_stronger) if n_stronger > 0 else None
 
 def occupied_freqs(decs, our_parity):
     """Only signals transmitting in OUR tx-parity slots occupy our slot — the
@@ -533,7 +585,12 @@ def main():
             return len({r["msg"].split()[1] for r in recent_all
                         if r["msg"].startswith(c + " ") and len(r["msg"].split()) >= 2
                         and r["msg"].split()[1] != MYCALL})
-        cqs.sort(key=lambda x: -(x[0]["snr"] - 6 * competitors(x[1])))
+        pileup_penalty = {call: 6 * competitors(call) for _, call, _ in cqs}
+        logged = dxcc.logged_countries(all_time_worked_calls()) if dx_mode else set()
+        bump = dx_priority_bump(cqs, dx_mode, logged, pileup_penalty)
+        if bump:
+            ev(f"DX Mode: prioritizing {bump[0]} (new country) over {bump[1]} stronger candidate(s)")
+        cqs = rank_cqs(cqs, dx_mode, logged, pileup_penalty)
         requested = _read_target_request()
         d, call, grid = select_target(cqs, requested)
         their_parity = slot_parity_of(d["slot"])
@@ -557,7 +614,6 @@ def main():
         their_freq = d["freq"]
         answered_f0 = None        # offset that actually got through (sticky once answered)
         while state not in ("done", "fail"):
-            write_engine_state(qso_step=state)
             if skip_is_requested(_read_skip_ts_epoch(), target_start_ts):
                 ev(f"skip requested for {call} — abandoning target")
                 state = "fail"
@@ -566,6 +622,7 @@ def main():
             if state == "call":  msg = f"{call} {MYCALL} {MYGRID}"
             elif state == "rrpt": msg = f"{call} {MYCALL} R{report_to_them}"
             elif state == "b73": msg = f"{call} {MYCALL} 73"
+            write_engine_state(qso_step=state, msg_tx_count=tx_count[msg])
             # split operation (ZL2IFB): ALWAYS call on our own clear offset, never
             # on the target's frequency; once answered, stay where they heard us
             use_f0 = answered_f0 if answered_f0 is not None else f0

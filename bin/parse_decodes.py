@@ -8,6 +8,7 @@ import sys, re, json, time, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import station_config
 import decode_store
+import dxcc
 
 _C = station_config.load()
 DATE = sys.argv[1] if len(sys.argv) > 1 else time.strftime("%y%m%d", time.gmtime())
@@ -76,6 +77,14 @@ for d in recent:
                 cands[call] = {"call": call, "grid": m.group(2) or "",
                                "snr": d["snr"], "freq": d["freq"], "slot": d["slot"]}
 ranked = sorted(cands.values(), key=lambda c: -c["snr"])
+
+# DX Mode's "new country" tag: country resolved via the shared prefix table,
+# new_country true only when that country isn't anywhere in the all-time
+# worked set above (fails closed on unmapped prefixes -- see dxcc.py).
+logged = dxcc.logged_countries(worked)
+for c in ranked:
+    c["country"] = dxcc.country_for_call(c["call"])
+    c["new_country"] = dxcc.is_new_country(c["call"], logged)
 
 # anyone calling ME?
 calling_me = [d for d in recent if d["slot"] in slots_seen
