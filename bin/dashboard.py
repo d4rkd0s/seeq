@@ -137,6 +137,35 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
   letter-spacing:.03em;transition:background .15s,color .15s}
  #btnTune30:hover{background:#0d2650} #btnTune30:active{background:#123166}
  #btnTune30:disabled{opacity:.6;cursor:default}
+ /* ---- DX Mode toggle (cockpit, between TUNE and STOP): a compact chip
+    matching its neighbors' height/weight. Green (#3fb950, this app's
+    existing "confirmed/good" color -- see .callchip-main, lb-confirmed)
+    rather than TUNE's blue, so the two controls read as visually distinct
+    even though the DX-armed PAGE GLOW itself stays blue (#1f6feb,
+    unrelated choice, unchanged) -- the toggle's own color and the glow's
+    color are allowed to differ, they answer different questions ("is DX
+    Mode armed" vs "is DX Mode active on the tone I'm choosing to render").
+    A real flip-switch, not a checkbox+label: the native <input> stays
+    functionally in place (opacity:0, full-size, on top) for click/keyboard/
+    a11y, purely visually replaced by .dxSwitchTrack's thumb via the
+    adjacent-sibling :checked selector. ---- */
+ #dxToggleWrap{display:flex;align-items:center;gap:8px;background:#21262d;
+  border:2px solid #3fb950;border-radius:6px;padding:12px 14px;color:#3fb950;
+  font-size:13px;font-weight:700;letter-spacing:.03em;cursor:pointer}
+ .dxSwitch{position:relative;display:inline-block;width:34px;height:18px;flex:0 0 auto}
+ .dxSwitch input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:1}
+ .dxSwitchTrack{position:absolute;inset:0;background:#30363d;border-radius:10px;
+  transition:background .15s}
+ .dxSwitchTrack::before{content:'';position:absolute;left:2px;top:2px;width:14px;height:14px;
+  background:#8b949e;border-radius:50%;transition:transform .15s,background .15s}
+ .dxSwitch input:checked+.dxSwitchTrack{background:#173a20}
+ .dxSwitch input:checked+.dxSwitchTrack::before{transform:translateX(16px);background:#3fb950}
+ /* ---- help (i) icon: rightmost cockpit element, always visible (cockpit
+    is position:sticky) -- satisfies "upper right of the page". ---- */
+ #btnInfo{position:relative;background:#21262d;color:#8b949e;border:1px solid #30363d;
+  border-radius:50%;width:34px;height:34px;font-size:15px;font-weight:800;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;padding:0}
+ #btnInfo:hover{color:#58a6ff;border-color:#58a6ff}
  #btnUnkey.live{background:#f85149;color:#fff;border-color:#f85149;
   animation:sirenGlow 1s ease-in-out infinite}
  #btnUnkey.live::before,#btnUnkey.live::after{content:'';position:absolute;inset:-3px;
@@ -194,6 +223,31 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
  .modalBody{font-size:12.5px;color:#c9d1d9;line-height:1.5}
  .modalBody ul{margin:8px 0;padding-left:18px}
  .modalBody li{margin:4px 0}
+ /* ---- Help modal: reuses .modalOverlay/.modalBox above but a much bigger
+    box + an internal tab bar. z-index 10000, above both glow layers (9997/
+    9998) and the DX-confirm modal (9999) -- the two modals aren't expected
+    to ever be open together, but if they somehow were, help should still
+    win. ---- */
+ #helpModal{z-index:10000}
+ #helpModal .modalBox{max-width:92vw;width:920px;height:88vh;display:flex;
+  flex-direction:column;padding:0}
+ .helpHead{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #21262d}
+ .helpHead .modalTitle{flex:1;margin:0}
+ .helpClose{background:none;border:1px solid #30363d;color:#8b949e;border-radius:5px;
+  width:26px;height:26px;cursor:pointer;font-size:14px;line-height:1}
+ .helpClose:hover{color:#c9d1d9;border-color:#484f58}
+ .helpTabs{display:flex;gap:4px;padding:8px 16px 0}
+ .helpTab{background:none;border:1px solid #30363d;border-bottom:none;color:#8b949e;
+  border-radius:6px 6px 0 0;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer}
+ .helpTab.active{background:#161b22;color:#58a6ff;border-color:#1f6feb}
+ .helpBody{flex:1;overflow:auto;padding:16px 20px;font-size:13px;color:#c9d1d9;line-height:1.6}
+ .helpBody h3{color:#58a6ff;font-size:14px;margin:0 0 10px}
+ .helpBody ol,.helpBody ul{margin:6px 0 14px;padding-left:20px}
+ .helpBody li{margin:6px 0}
+ .helpBody code{background:#0d1117;border:1px solid #30363d;border-radius:3px;
+  padding:1px 5px;font-family:ui-monospace,monospace;font-size:12px}
+ .helpPane{display:none}
+ .helpPane.active{display:block}
  #btnBell.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
  #dryrunBanner{background:#3d2f00;color:#e3b341;border:1px solid #6b5300;border-radius:6px;
   padding:4px 10px;font-size:12px;font-weight:700;display:none;margin-bottom:8px}
@@ -261,7 +315,12 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
  <button id=btnBell class=actionbtn title="desktop alerts: new QSO, Automatic CQ ended, watchdog/abort, decode silence &gt;3 min">Alerts: OFF</button>
  <button id=resetLayout class=actionbtn title="restore default widget layout">Reset layout</button>
  <button id=btnTune30 title="stop Automatic CQ + rigctl T 0, then a 30s window to run a manual TUNE cycle — does not auto-resume, click Automatic CQ again when done">TUNE</button>
+ <label id=dxToggleWrap title="chase stations outside your own country/DXCC entity only, and allow directed CQ DX">
+  DX Mode
+  <span class=dxSwitch><input type=checkbox id=dxModeToggle><span class=dxSwitchTrack></span></span>
+ </label>
  <button id=btnUnkey title="stop Automatic CQ + rigctl T 0 — no confirmation">STOP</button>
+ <button id=btnInfo title="help: quickstart, controls, widgets">ℹ</button>
 </div>
 <div id=dash>
 
@@ -319,9 +378,6 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>FT8-Claude —
    <div class=arow>
     <input id=chaseN type=number min=1 max=180 value=1>
     <select id=chaseMode><option value=qsos>QSOs</option><option value=minutes>minutes</option></select>
-    <label class=dim style="display:flex;align-items:center;gap:4px;cursor:pointer" title="chase stations outside your own country/DXCC entity only, and allow directed CQ DX">
-     <input type=checkbox id=dxModeToggle> DX only
-    </label>
     <button id=btnChaseStart class="actionbtn warn tx-capable">Automatic CQ</button>
     <button id=btnChaseStop class=actionbtn>Stop</button>
    </div>
@@ -383,6 +439,13 @@ chmod 600 ~/.config/cota/qrz.key</pre>
    </div>
    <div class=arow><button id=qrzSyncBtn class=actionbtn>Sync to QRZ</button></div>
    <div class=dim id=qrzMsg></div>
+   <div class=arow style="margin-top:6px">
+    <label class=dim id=qrzAutoLabel style="display:flex;align-items:center;gap:4px;cursor:pointer"
+     title="requires a QRZ API key on file first -- see the setup note above">
+     <input type=checkbox id=qrzAutoToggle disabled> Auto sync &amp; upload
+    </label>
+    <span class=dim id=qrzAutoStatus></span>
+   </div>
    <details style="margin-top:8px">
     <summary class=dim style="cursor:pointer">Recent sync log</summary>
     <pre id=qrzLog style="font-size:11px;max-height:140px;overflow-y:auto;margin-top:6px">no syncs yet</pre>
@@ -459,6 +522,111 @@ chmod 600 ~/.config/cota/qrz.key</pre>
   <div class=arow style="justify-content:flex-end">
    <button id=dxModalCancel class=actionbtn>Cancel</button>
    <button id=dxModalConfirm class="actionbtn warn">Arm DX Mode</button>
+  </div>
+ </div>
+</div>
+<div id=helpModal class=modalOverlay style="display:none">
+ <div class=modalBox>
+  <div class=helpHead>
+   <div class=modalTitle>COTA help</div>
+   <button id=helpClose class=helpClose title="close">✕</button>
+  </div>
+  <div class=helpTabs>
+   <button class="helpTab active" data-tab=quickstart>Quickstart</button>
+   <button class=helpTab data-tab=controls>Controls</button>
+   <button class=helpTab data-tab=widgets>Widgets &amp; modes</button>
+  </div>
+  <div class=helpBody>
+   <div class="helpPane active" data-pane=quickstart>
+    <h3>Your first QSO</h3>
+    <ol>
+     <li><b>Configure your station.</b> Copy <code>station.conf.example</code> to
+      <code>station.conf</code> and edit every value for YOUR station (callsign,
+      grid, CAT port, rig model, audio device) — or run <code>bin/coa setup</code>
+      for an interactive wizard that detects your hardware. <code>station.conf</code>
+      is gitignored; your settings never leave this machine.</li>
+     <li><b>Preflight.</b> Run <code>bin/coa doctor</code> — checks the CAT port,
+      audio source, clock sync, mixer calibration, and reads back the rig's actual
+      dial frequency against your configured <code>DIAL_HZ</code>. Fix anything it
+      flags before continuing.</li>
+     <li><b>Start receiving.</b> Click "Start monitoring (RX only)" in the Actions
+      widget (or run <code>bin/coa start</code>) — this decodes and displays FT8
+      traffic but never transmits. Watch the Decodes and World map widgets fill in
+      to confirm your receive chain works before you ever key up.</li>
+     <li><b>Run one QSO.</b> Set the count to 1 QSO, click "Automatic CQ", then
+      "Confirm start Automatic CQ" in the Actions widget. You are still the control
+      operator — stay at the radio, watch NEXT TX (top center) count down, and STOP
+      (top right) is always one click away with no confirmation needed.</li>
+     <li><b>What happens next.</b> The chaser answers the first workable CQ it hears
+      (SNR floor + on-air etiquette rules apply — see the Controls tab), sequences
+      the exchange automatically, and logs the QSO locally to standard ADIF
+      (<code>wsjtx_log.adi</code>) the moment it completes.</li>
+     <li><b>QRZ Logbook sync is entirely optional.</b> It needs your own paid QRZ
+      XML/Logbook Data subscription and API key. Every QSO is already logged
+      locally regardless of QRZ — QRZ sync only additionally pushes/pulls
+      confirmation status to your QRZ.com account, and nothing in this app requires
+      it to work.</li>
+    </ol>
+   </div>
+   <div class=helpPane data-pane=controls>
+    <h3>Cockpit &amp; Actions controls</h3>
+    <ul>
+     <li><b>Alerts</b> — desktop notifications for: new QSO, Automatic CQ ended,
+      watchdog/abort, decode silence &gt;3 min.</li>
+     <li><b>Reset layout</b> — restores the default widget positions/sizes.</li>
+     <li><b>TUNE</b> — stops Automatic CQ and unkeys, then opens a 30 s window for
+      a manual TUNE cycle; does not auto-resume chasing afterward, click Automatic
+      CQ again when done.</li>
+     <li><b>DX Mode</b> — arms DX Mode for the <i>next</i> Automatic CQ session
+      (shows an "Arm DX Mode?" confirmation first); while armed, only chases
+      stations outside your own DXCC entity/country and additionally allows
+      answering directed "CQ DX" calls — every other etiquette rule (split-calling,
+      SNR floor, busy-hold, repeat cap) still applies unchanged. The page's blue
+      ambient glow means DX Mode is armed on the currently-running chase session.</li>
+     <li><b>STOP</b> — stops Automatic CQ and unkeys (<code>rigctl T 0</code>) — no
+      confirmation, always available, one click.</li>
+     <li><b>Start monitoring (RX only) / Stand down</b> — start/stop the
+      receive+decode loop (Stand down also stops Automatic CQ if running).</li>
+     <li><b>QSO count / mode selector + Automatic CQ / Confirm / Cancel</b> —
+      configures and arms a chase session; this is TX-capable and <i>will</i> key
+      the radio once it finds an answerable CQ, hence the explicit confirm step.</li>
+     <li><b>Skip current target</b> (Next call widget) — abandons the currently
+      pursued target, moves on to the next candidate.</li>
+     <li><b>Whole-page red glow</b> — literally keyed/transmitting, right now.
+      Always the dominant visual regardless of what else is active.</li>
+    </ul>
+   </div>
+   <div class=helpPane data-pane=widgets>
+    <h3>Widgets</h3>
+    <ul>
+     <li><b>Status</b> — station config summary at a glance (callsign, grid, band,
+      power, dial frequency).</li>
+     <li><b>Decodes</b> — live table of every FT8 decode this slot.</li>
+     <li><b>Next call</b> — the chaser's top-ranked candidate plus runner-ups
+      (SNR-ranked); click a callsign chip to request it as the next target.</li>
+     <li><b>TX transparency</b> — the exact message and audio actually keyed, for
+      troubleshooting "why didn't it transmit".</li>
+     <li><b>Actions</b> — start/stop monitoring, arm/confirm/cancel Automatic CQ.</li>
+     <li><b>Station config</b> — edit callsign/grid/band/power/antenna from the
+      browser; writes back to <code>station.conf</code>.</li>
+     <li><b>QRZ Logbook</b> — optional QRZ.com integration: manual "Sync to QRZ"
+      upload, plus an "Auto sync &amp; upload" toggle that alternates upload and
+      refresh every 1 minute (each repeating every 2 minutes) while this tab stays
+      open — see its tooltip for details.</li>
+     <li><b>Logbook</b> — confirmed / uploaded / not-yet-synced QSO table, with a
+      manual "Refresh from QRZ" pull.</li>
+     <li><b>World map</b> — heard stations plotted by grid square (fading over
+      ~15 min), your QTH marked, an animated arc to the station currently being
+      worked while keyed.</li>
+     <li><b>Waterfall</b> — live spectrogram of the receive audio.</li>
+     <li><b>QSO log</b> — this session's completed contacts.</li>
+     <li><b>Automatic CQ events</b> — the chaser's own event diary
+      (<code>data/chase.log</code>).</li>
+     <li><b>Dry-run mode</b> — a banner appears when the whole app is running under
+      <code>COA_DRYRUN</code>: every action is logged but never actually executed
+      (no rig, no network) — used for safely testing the dashboard itself.</li>
+    </ul>
+   </div>
   </div>
  </div>
 </div>
@@ -873,6 +1041,51 @@ function wireStationCfg(){
    sync is a sequence of blocking HTTPS calls to QRZ -- kicking it off just
    starts the process; polling picks up progress via the same /qrz/status
    endpoint everything else here already uses that pattern for. ---- */
+/* ---- QRZ auto sync & upload scheduling math -- pure, unit tested in
+   tools/test_dashboard_js.py (same Node-subprocess technique as
+   callCountry()). A single heartbeat (not two independent setInterval
+   timers) re-evaluates "is this job due" against wall-clock elapsed time
+   every QRZ_AUTO_HEARTBEAT_MS, so a backgrounded/throttled tab can't drift
+   the two jobs out of their documented 1-min-apart, 2-min-repeat cadence
+   the way two independent long-period setIntervals could. Client-side only
+   -- runs while this browser tab stays open, no server-side cron. ---- */
+const QRZ_AUTO_PERIOD_MS=120000, QRZ_AUTO_STAGGER_MS=60000, QRZ_AUTO_HEARTBEAT_MS=5000;
+function qrzJobDue(elapsedMs, periodMs, offsetMs, lastFireMs){
+ if(elapsedMs<offsetMs) return false;
+ if(lastFireMs===null) return true;
+ return (elapsedMs-lastFireMs)>=periodMs;
+}
+let qrzAutoArmedAt=null, qrzAutoHeartbeat=null, qrzAutoLastSync=null, qrzAutoLastRefresh=null, qrzAutoInitPending=true;
+function qrzAutoSetStatus(t){ const el=document.getElementById('qrzAutoStatus'); if(el) el.textContent=t; }
+async function qrzAutoTick(){
+ if(qrzAutoArmedAt===null) return;
+ const elapsed=Date.now()-qrzAutoArmedAt;
+ if(qrzJobDue(elapsed,QRZ_AUTO_PERIOD_MS,0,qrzAutoLastSync)){
+  qrzAutoLastSync=elapsed;
+  const r=await postAction('/action/qrz/sync',{});
+  qrzAutoSetStatus((r.ok?'auto sync started':(r.status===409?'auto sync skipped (already running)':
+   'auto sync failed: '+(r.body.error||r.error||r.status)))+' — '+new Date().toLocaleTimeString());
+  loadQrzStatus();
+ }
+ if(qrzJobDue(elapsed,QRZ_AUTO_PERIOD_MS,QRZ_AUTO_STAGGER_MS,qrzAutoLastRefresh)){
+  qrzAutoLastRefresh=elapsed;
+  const r=await postAction('/action/qrz/refresh',{});
+  qrzAutoSetStatus((r.ok?'auto refresh started':(r.status===409?'auto refresh skipped (already running)':
+   'auto refresh failed: '+(r.body.error||r.error||r.status)))+' — '+new Date().toLocaleTimeString());
+ }
+}
+function qrzAutoArm(){
+ qrzAutoArmedAt=Date.now(); qrzAutoLastSync=null; qrzAutoLastRefresh=null;
+ if(!qrzAutoHeartbeat) qrzAutoHeartbeat=setInterval(qrzAutoTick,QRZ_AUTO_HEARTBEAT_MS);
+ qrzAutoTick();
+ try{localStorage.setItem('coa-qrz-auto','1');}catch(e){}
+}
+function qrzAutoDisarm(){
+ qrzAutoArmedAt=null;
+ if(qrzAutoHeartbeat){ clearInterval(qrzAutoHeartbeat); qrzAutoHeartbeat=null; }
+ qrzAutoSetStatus('');
+ try{localStorage.removeItem('coa-qrz-auto');}catch(e){}
+}
 let qrzSyncPolling=null;
 async function loadQrzStatus(){
  try{
@@ -886,6 +1099,22 @@ async function loadQrzStatus(){
   log.textContent=(s.log_tail&&s.log_tail.length)?s.log_tail.join('\\n'):'no syncs yet';
   const btn=document.getElementById('qrzSyncBtn');
   btn.disabled=s.syncing||!s.configured;
+  // Auto sync & upload toggle: disabled without a key on file; force-disarm
+  // if a key that WAS configured disappears mid-session. On the first status
+  // load that confirms a key is on file, restore an armed state left over
+  // from a previous page load (see qrzAutoArm()'s localStorage write).
+  const autoCk=document.getElementById('qrzAutoToggle');
+  autoCk.disabled=!s.configured;
+  document.getElementById('qrzAutoLabel').title=s.configured
+   ? 'every 2 min, alternating sync then refresh, staggered 1 min apart -- runs only while this dashboard tab stays open, no server-side schedule'
+   : 'requires a QRZ API key on file first -- see the setup note above';
+  if(!s.configured && qrzAutoArmedAt!==null){ autoCk.checked=false; qrzAutoDisarm(); }
+  if(qrzAutoInitPending && s.configured){
+   qrzAutoInitPending=false;
+   try{
+    if(localStorage.getItem('coa-qrz-auto')==='1'){ autoCk.checked=true; qrzAutoArm(); }
+   }catch(e){}
+  }
   if(s.syncing && !qrzSyncPolling){
    qrzSyncPolling=setInterval(loadQrzStatus,2000);
   }else if(!s.syncing && qrzSyncPolling){
@@ -894,6 +1123,9 @@ async function loadQrzStatus(){
  }catch(e){}
 }
 function wireQrz(){
+ document.getElementById('qrzAutoToggle').addEventListener('change',(e)=>{
+  if(e.target.checked) qrzAutoArm(); else qrzAutoDisarm();
+ });
  document.getElementById('qrzSyncBtn').addEventListener('click',async()=>{
   const msg=document.getElementById('qrzMsg');
   msg.textContent='starting sync…';
@@ -1336,6 +1568,27 @@ function wireActions(){
  });
 }
 
+/* ---- help modal: static content, tab switching only, no server calls. ---- */
+function wireHelp(){
+ document.getElementById('btnInfo').addEventListener('click',()=>{
+  document.getElementById('helpModal').style.display='flex';
+ });
+ document.getElementById('helpClose').addEventListener('click',()=>{
+  document.getElementById('helpModal').style.display='none';
+ });
+ document.getElementById('helpModal').addEventListener('click',(e)=>{
+  if(e.target.id==='helpModal') document.getElementById('helpModal').style.display='none';
+ });
+ document.querySelectorAll('.helpTab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+   document.querySelectorAll('.helpTab').forEach(t=>t.classList.remove('active'));
+   document.querySelectorAll('.helpPane').forEach(p=>p.classList.remove('active'));
+   tab.classList.add('active');
+   document.querySelector(`.helpPane[data-pane="${tab.dataset.tab}"]`).classList.add('active');
+  });
+ });
+}
+
 /* ---- alerts (4.3): client-side only, derived from the existing /status.json,
    /engine.json and /actions/state polls above — no server push. Browser
    Notification API when granted; tab-title flash as fallback when denied/
@@ -1498,6 +1751,7 @@ loadLayout();
 wireActions();
 wireStationCfg();
 wireQrz();
+wireHelp();
 document.getElementById('evRaw').addEventListener('change',renderEvents);
 document.getElementById('txwf').addEventListener('error',function(){this.style.display='none';});
 loadCfg().then(()=>{ tick(); loadBands().then(()=>{ buildAntBandsRow(); loadAntennas(); }); });

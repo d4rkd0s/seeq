@@ -63,6 +63,34 @@ def run_call_country(calls):
     return json.loads(r.stdout)
 
 
+def extract_qrz_job_due_js():
+    """Slice the qrzJobDue() scheduling function verbatim out of dashboard.py's
+    rendered PAGE, between two stable markers: its declaration and the next
+    line (the qrzAuto* state variables that follow it)."""
+    page = _dashboard_module().PAGE
+    start = page.index("function qrzJobDue(")
+    end = page.index("\nlet qrzAutoArmedAt", start)
+    snippet = page[start:end]
+    assert "return (elapsedMs-lastFireMs)" in snippet, (
+        "qrzJobDue() not found between markers -- dashboard.py layout changed, "
+        "update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_qrz_job_due(elapsed_ms, period_ms, offset_ms, last_fire_ms):
+    """Evaluate the real qrzJobDue() JS (via Node) for one set of args.
+    last_fire_ms=None maps to JS null."""
+    js = extract_qrz_job_due_js()
+    last = "null" if last_fire_ms is None else str(last_fire_ms)
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(qrzJobDue(%d, %d, %d, %s)));"
+    ) % (elapsed_ms, period_ms, offset_ms, last)
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
 class TestCallCountry(unittest.TestCase):
     def test_regression_pre_existing_prefix(self):
         result = run_call_country(["DL1ABC"])
@@ -92,6 +120,34 @@ class TestCallCountry(unittest.TestCase):
     def test_unknown_prefix_returns_empty_string(self):
         result = run_call_country(["QQ9ZZZ"])
         self.assertEqual(result["QQ9ZZZ"], "")
+
+
+class TestQrzJobDue(unittest.TestCase):
+    """Sync fires at t=0,120s,240s,... (offset 0); refresh fires at
+    t=60s,180s,300s,... (offset 60s) -- each job repeats every 120s once
+    started, and the two are staggered 60s apart from each other."""
+
+    PERIOD = 120000
+    STAGGER = 60000
+
+    def test_sync_fires_immediately_when_never_fired(self):
+        self.assertTrue(run_qrz_job_due(0, self.PERIOD, 0, None))
+
+    def test_refresh_not_due_before_its_stagger_offset(self):
+        self.assertFalse(run_qrz_job_due(0, self.PERIOD, self.STAGGER, None))
+
+    def test_refresh_fires_at_its_first_stagger_offset(self):
+        self.assertTrue(run_qrz_job_due(self.STAGGER, self.PERIOD, self.STAGGER, None))
+
+    def test_sync_not_due_again_before_full_period(self):
+        self.assertFalse(run_qrz_job_due(119000, self.PERIOD, 0, 0))
+
+    def test_sync_due_again_exactly_at_full_period(self):
+        self.assertTrue(run_qrz_job_due(120000, self.PERIOD, 0, 0))
+
+    def test_refresh_second_fire_is_two_minutes_after_its_first(self):
+        self.assertFalse(run_qrz_job_due(179000, self.PERIOD, self.STAGGER, self.STAGGER))
+        self.assertTrue(run_qrz_job_due(180000, self.PERIOD, self.STAGGER, self.STAGGER))
 
 
 if __name__ == "__main__":
