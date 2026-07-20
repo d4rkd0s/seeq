@@ -1,0 +1,840 @@
+{
+ "AD": {
+  "dish": "Escudella",
+  "flower": "Narcissus"
+ },
+ "AE": {
+  "dish": "Harees",
+  "flower": "Tribulus"
+ },
+ "AF": {
+  "dish": "Kabuli Palaw",
+  "flower": "Tulip"
+ },
+ "AG": {
+  "dish": "Fungee and Pepperpot",
+  "flower": "Dagger's Log"
+ },
+ "AI": {
+  "dish": "Crayfish"
+ },
+ "AL": {
+  "dish": "Tavë Kosi",
+  "flower": "Red Poppy"
+ },
+ "AM": {
+  "dish": "Khorovats",
+  "flower": "Forget-Me-Not"
+ },
+ "AO": {
+  "dish": "Muamba de Galinha"
+ },
+ "AR": {
+  "dish": "Asado",
+  "flower": "Ceibo Flower"
+ },
+ "AS": {
+  "dish": "Palusami",
+  "flower": "Paogo"
+ },
+ "AT": {
+  "dish": "Wiener Schnitzel",
+  "flower": "Edelweiss"
+ },
+ "AU": {
+  "dish": "Meat Pie",
+  "flower": "Golden Wattle"
+ },
+ "AW": {
+  "dish": "Keshi Yena",
+  "flower": "Wanglo"
+ },
+ "AX": {
+  "dish": "Åland Pancake"
+ },
+ "AZ": {
+  "dish": "Dolma"
+ },
+ "BA": {
+  "dish": "Ćevapi",
+  "flower": "Golden Lily"
+ },
+ "BB": {
+  "dish": "Cou-Cou and Flying Fish",
+  "flower": "Pride of Barbados"
+ },
+ "BD": {
+  "dish": "Ilish (Hilsa Fish)",
+  "flower": "Water Lily"
+ },
+ "BE": {
+  "dish": "Moules-Frites",
+  "flower": "Red Poppy"
+ },
+ "BF": {
+  "dish": "Riz Gras"
+ },
+ "BG": {
+  "dish": "Banitsa",
+  "flower": "Rose"
+ },
+ "BH": {
+  "dish": "Machboos"
+ },
+ "BI": {
+  "dish": "Boko Boko"
+ },
+ "BJ": {
+  "dish": "Kuli-Kuli"
+ },
+ "BM": {
+  "dish": "Fish Chowder",
+  "flower": "Blue-Eyed Grass"
+ },
+ "BN": {
+  "dish": "Ambuyat",
+  "flower": "Simpoh Ayer"
+ },
+ "BO": {
+  "dish": "Salteñas",
+  "flower": "Kantuta"
+ },
+ "BR": {
+  "dish": "Feijoada",
+  "flower": "Golden Trumpet"
+ },
+ "BS": {
+  "dish": "Crack Conch",
+  "flower": "Yellow Elder"
+ },
+ "BT": {
+  "dish": "Ema Datshi",
+  "flower": "Blue Poppy"
+ },
+ "BW": {
+  "dish": "Seswaa"
+ },
+ "BY": {
+  "dish": "Draniki",
+  "flower": "Flax"
+ },
+ "BZ": {
+  "dish": "Rice and Beans",
+  "flower": "Black Orchid"
+ },
+ "CA": {
+  "dish": "Poutine",
+  "flower": "Maple Leaf"
+ },
+ "CD": {
+  "dish": "Poulet à la Moambé"
+ },
+ "CF": {
+  "dish": "Cassava"
+ },
+ "CG": {
+  "dish": "Poulet Moambé"
+ },
+ "CH": {
+  "dish": "Fondue",
+  "flower": "Edelweiss"
+ },
+ "CI": {
+  "dish": "Attiéké"
+ },
+ "CK": {
+  "dish": "Ika Mata",
+  "flower": "Tiare Maori"
+ },
+ "CL": {
+  "dish": "Empanada",
+  "flower": "Copihue"
+ },
+ "CM": {
+  "dish": "Ndolé"
+ },
+ "CN": {
+  "dish": "Peking Duck",
+  "flower": "Peony"
+ },
+ "CN-TW": {
+  "dish": "Beef Noodle Soup",
+  "flower": "Plum Blossom"
+ },
+ "CO": {
+  "dish": "Bandeja Paisa",
+  "flower": "Orchid"
+ },
+ "CR": {
+  "dish": "Gallo Pinto",
+  "flower": "Guaria Morada"
+ },
+ "CU": {
+  "dish": "Ropa Vieja",
+  "flower": "White Ginger Lily"
+ },
+ "CV": {
+  "dish": "Cachupa"
+ },
+ "CW": {
+  "dish": "Keshi Yena",
+  "flower": "Kibrahacha"
+ },
+ "CY": {
+  "dish": "Souvla",
+  "flower": "Cyclamen"
+ },
+ "CZ": {
+  "dish": "Svíčková",
+  "flower": "Rose"
+ },
+ "DE": {
+  "dish": "Sauerbraten",
+  "flower": "Cornflower"
+ },
+ "DJ": {
+  "dish": "Skoudehkaris"
+ },
+ "DK": {
+  "dish": "Smørrebrød",
+  "flower": "Marguerite Daisy"
+ },
+ "DM": {
+  "dish": "Callaloo",
+  "flower": "Carib Wood"
+ },
+ "DO": {
+  "dish": "La Bandera",
+  "flower": "Bayahíbe Rose"
+ },
+ "DZ": {
+  "dish": "Couscous",
+  "flower": "Iris"
+ },
+ "EC": {
+  "dish": "Encebollado"
+ },
+ "EE": {
+  "dish": "Kama",
+  "flower": "Cornflower"
+ },
+ "EG": {
+  "dish": "Koshari",
+  "flower": "Lotus"
+ },
+ "EH": {
+  "dish": "Couscous"
+ },
+ "ER": {
+  "dish": "Zigni with Injera"
+ },
+ "ES": {
+  "dish": "Tortilla Española",
+  "flower": "Carnation"
+ },
+ "ET": {
+  "dish": "Doro Wat",
+  "flower": "Calla Lily"
+ },
+ "FI": {
+  "dish": "Karelian Pie",
+  "flower": "Lily of the Valley"
+ },
+ "FJ": {
+  "dish": "Kokoda",
+  "flower": "Tagimaucia"
+ },
+ "FM": {
+  "dish": "Breadfruit and Fish",
+  "flower": "Hibiscus"
+ },
+ "FO": {
+  "dish": "Skerpikjøt",
+  "flower": "Marsh Marigold"
+ },
+ "FR": {
+  "dish": "Pot-au-Feu",
+  "flower": "Iris"
+ },
+ "GA": {
+  "dish": "Poulet Nyembwe"
+ },
+ "GB": {
+  "dish": "Fish and Chips",
+  "flower": "Tudor Rose"
+ },
+ "GD": {
+  "dish": "Oil Down"
+ },
+ "GE": {
+  "dish": "Khachapuri"
+ },
+ "GG": {
+  "dish": "Guernsey Gâche",
+  "flower": "Guernsey Lily"
+ },
+ "GH": {
+  "dish": "Jollof Rice"
+ },
+ "GL": {
+  "dish": "Suaasat"
+ },
+ "GM": {
+  "dish": "Domoda"
+ },
+ "GN": {
+  "dish": "Poulet Yassa"
+ },
+ "GQ": {
+  "dish": "Succotash"
+ },
+ "GR": {
+  "dish": "Moussaka",
+  "flower": "Bear's Breeches"
+ },
+ "GT": {
+  "dish": "Pepián",
+  "flower": "Monja Blanca"
+ },
+ "GU": {
+  "dish": "Kelaguen",
+  "flower": "Bougainvillea"
+ },
+ "GW": {
+  "dish": "Caldo de Mancarra"
+ },
+ "GY": {
+  "dish": "Pepperpot",
+  "flower": "Victoria Regia Lily"
+ },
+ "HK": {
+  "dish": "Dim Sum",
+  "flower": "Bauhinia"
+ },
+ "HN": {
+  "dish": "Baleada",
+  "flower": "Rhyncholaelia Digbyana"
+ },
+ "HR": {
+  "dish": "Peka",
+  "flower": "Iris Croatica"
+ },
+ "HT": {
+  "dish": "Griot",
+  "flower": "Hibiscus"
+ },
+ "HU": {
+  "dish": "Goulash",
+  "flower": "Tulip"
+ },
+ "ID": {
+  "dish": "Nasi Goreng",
+  "flower": "Jasmine"
+ },
+ "IE": {
+  "dish": "Irish Stew",
+  "flower": "Shamrock"
+ },
+ "IL": {
+  "dish": "Falafel",
+  "flower": "Poppy Anemone"
+ },
+ "IM": {
+  "dish": "Queenies"
+ },
+ "IN": {
+  "dish": "Biryani",
+  "flower": "Lotus"
+ },
+ "IQ": {
+  "dish": "Masgouf",
+  "flower": "Red Rose"
+ },
+ "IR": {
+  "dish": "Chelo Kabab",
+  "flower": "Water Lily"
+ },
+ "IS": {
+  "dish": "Hákarl",
+  "flower": "Mountain Avens"
+ },
+ "IT": {
+  "dish": "Pizza",
+  "flower": "Strawberry Tree Flower"
+ },
+ "JE": {
+  "dish": "Jersey Royal Potatoes"
+ },
+ "JM": {
+  "dish": "Ackee and Saltfish",
+  "flower": "Lignum Vitae"
+ },
+ "JO": {
+  "dish": "Mansaf",
+  "flower": "Black Iris"
+ },
+ "JP": {
+  "dish": "Sushi",
+  "flower": "Cherry Blossom"
+ },
+ "KE": {
+  "dish": "Nyama Choma"
+ },
+ "KG": {
+  "dish": "Beshbarmak"
+ },
+ "KH": {
+  "dish": "Fish Amok",
+  "flower": "Rumdul"
+ },
+ "KI": {
+  "dish": "Palusami"
+ },
+ "KM": {
+  "dish": "Vanilla Lobster",
+  "flower": "Ylang-Ylang"
+ },
+ "KN": {
+  "dish": "Goat Water",
+  "flower": "Poinciana"
+ },
+ "KP": {
+  "dish": "Naengmyeon",
+  "flower": "Magnolia"
+ },
+ "KR": {
+  "dish": "Kimchi",
+  "flower": "Rose of Sharon"
+ },
+ "KW": {
+  "dish": "Machboos",
+  "flower": "Arfaj"
+ },
+ "KY": {
+  "dish": "Turtle Stew",
+  "flower": "Wild Banana Orchid"
+ },
+ "KZ": {
+  "dish": "Beshbarmak"
+ },
+ "LA": {
+  "dish": "Larb",
+  "flower": "Frangipani"
+ },
+ "LB": {
+  "dish": "Kibbeh",
+  "flower": "Cyclamen"
+ },
+ "LC": {
+  "dish": "Green Fig and Saltfish",
+  "flower": "Rose"
+ },
+ "LI": {
+  "dish": "Käsknöpfle",
+  "flower": "Yellow Lily"
+ },
+ "LK": {
+  "dish": "Rice and Curry",
+  "flower": "Water Lily"
+ },
+ "LR": {
+  "dish": "Dumboy"
+ },
+ "LS": {
+  "dish": "Pap and Chakalaka"
+ },
+ "LT": {
+  "dish": "Cepelinai",
+  "flower": "Rue"
+ },
+ "LU": {
+  "dish": "Judd mat Gaardebounen",
+  "flower": "Rose"
+ },
+ "LV": {
+  "dish": "Grey Peas",
+  "flower": "Oxeye Daisy"
+ },
+ "LY": {
+  "dish": "Couscous",
+  "flower": "Pomegranate Blossom"
+ },
+ "MA": {
+  "dish": "Tagine"
+ },
+ "MC": {
+  "dish": "Barbagiuan",
+  "flower": "Carnation"
+ },
+ "MD": {
+  "dish": "Mămăligă"
+ },
+ "ME": {
+  "dish": "Njeguški Pršut",
+  "flower": "Mimosa"
+ },
+ "MG": {
+  "dish": "Romazava",
+  "flower": "Royal Poinciana"
+ },
+ "MH": {
+  "dish": "Macadamia Nut Pie",
+  "flower": "Plumeria"
+ },
+ "MK": {
+  "dish": "Tavče Gravče",
+  "flower": "Red Poppy"
+ },
+ "ML": {
+  "dish": "Tiguadege Na"
+ },
+ "MM": {
+  "dish": "Mohinga",
+  "flower": "Padauk"
+ },
+ "MN": {
+  "dish": "Buuz",
+  "flower": "Scabiosa"
+ },
+ "MO": {
+  "dish": "Minchi",
+  "flower": "Lotus"
+ },
+ "MP": {
+  "dish": "Kelaguen",
+  "flower": "Plumeria"
+ },
+ "MR": {
+  "dish": "Thieboudienne"
+ },
+ "MS": {
+  "dish": "Goat Water"
+ },
+ "MT": {
+  "dish": "Stuffat tal-Fenek",
+  "flower": "Maltese Rock Centaury"
+ },
+ "MU": {
+  "dish": "Dholl Puri",
+  "flower": "Boucle d'Oreille"
+ },
+ "MV": {
+  "dish": "Mas Huni",
+  "flower": "Pink Rose"
+ },
+ "MW": {
+  "dish": "Nsima"
+ },
+ "MX": {
+  "dish": "Tacos",
+  "flower": "Dahlia"
+ },
+ "MY": {
+  "dish": "Nasi Lemak",
+  "flower": "Hibiscus"
+ },
+ "MZ": {
+  "dish": "Piri-Piri Chicken"
+ },
+ "NA": {
+  "dish": "Braaivleis",
+  "flower": "Welwitschia"
+ },
+ "NC": {
+  "dish": "Bougna"
+ },
+ "NE": {
+  "dish": "Dambou"
+ },
+ "NF": {
+  "dish": "Norfolk Island Pumpkin"
+ },
+ "NG": {
+  "dish": "Jollof Rice",
+  "flower": "Yellow Trumpet"
+ },
+ "NI": {
+  "dish": "Gallo Pinto",
+  "flower": "Sacuanjoche"
+ },
+ "NL": {
+  "dish": "Stamppot",
+  "flower": "Tulip"
+ },
+ "NO": {
+  "dish": "Fårikål",
+  "flower": "Purple Heather"
+ },
+ "NP": {
+  "dish": "Dal Bhat",
+  "flower": "Rhododendron"
+ },
+ "NR": {
+  "dish": "Coconut Fish"
+ },
+ "NU": {
+  "dish": "Takihi"
+ },
+ "NZ": {
+  "dish": "Pavlova",
+  "flower": "Kowhai"
+ },
+ "OM": {
+  "dish": "Shuwa"
+ },
+ "PA": {
+  "dish": "Sancocho",
+  "flower": "Holy Ghost Orchid"
+ },
+ "PE": {
+  "dish": "Ceviche",
+  "flower": "Cantuta"
+ },
+ "PF": {
+  "dish": "Poisson Cru",
+  "flower": "Tahitian Gardenia"
+ },
+ "PG": {
+  "dish": "Mumu"
+ },
+ "PH": {
+  "dish": "Adobo",
+  "flower": "Sampaguita"
+ },
+ "PK": {
+  "dish": "Biryani",
+  "flower": "Jasmine"
+ },
+ "PL": {
+  "dish": "Pierogi",
+  "flower": "Red Poppy"
+ },
+ "PM": {
+  "dish": "Fish and Chips"
+ },
+ "PN": {
+  "dish": "Pota"
+ },
+ "PR": {
+  "dish": "Mofongo",
+  "flower": "Flor de Maga"
+ },
+ "PS": {
+  "dish": "Maqluba",
+  "flower": "Iris"
+ },
+ "PT": {
+  "dish": "Bacalhau",
+  "flower": "Lavender"
+ },
+ "PW": {
+  "dish": "Tuna Salad"
+ },
+ "PY": {
+  "dish": "Sopa Paraguaya",
+  "flower": "Mburucuyá"
+ },
+ "QA": {
+  "dish": "Machboos"
+ },
+ "RO": {
+  "dish": "Sarmale",
+  "flower": "Peony"
+ },
+ "RS": {
+  "dish": "Ćevapi",
+  "flower": "Ramonda"
+ },
+ "RU": {
+  "dish": "Borscht",
+  "flower": "Chamomile"
+ },
+ "RW": {
+  "dish": "Ibihaza"
+ },
+ "SA": {
+  "dish": "Kabsa",
+  "flower": "Jasmine"
+ },
+ "SB": {
+  "dish": "Poke",
+  "flower": "Hibiscus"
+ },
+ "SC": {
+  "dish": "Grilled Fish with Rice",
+  "flower": "Tropicbird Orchid"
+ },
+ "SD": {
+  "dish": "Ful Medames"
+ },
+ "SE": {
+  "dish": "Köttbullar",
+  "flower": "Harebell"
+ },
+ "SG": {
+  "dish": "Chilli Crab",
+  "flower": "Vanda Miss Joaquim"
+ },
+ "SH": {
+  "dish": "Fish Cakes"
+ },
+ "SI": {
+  "dish": "Štruklji",
+  "flower": "Carnation"
+ },
+ "SK": {
+  "dish": "Bryndzové Halušky",
+  "flower": "Rose"
+ },
+ "SL": {
+  "dish": "Jollof Rice"
+ },
+ "SM": {
+  "dish": "Torta Tre Monti",
+  "flower": "Cyclamen"
+ },
+ "SN": {
+  "dish": "Thieboudienne"
+ },
+ "SO": {
+  "dish": "Bariis Iskukaris"
+ },
+ "SR": {
+  "dish": "Pom",
+  "flower": "Jungle Geranium"
+ },
+ "SS": {
+  "dish": "Ful Medames"
+ },
+ "ST": {
+  "dish": "Calulu"
+ },
+ "SV": {
+  "dish": "Pupusa",
+  "flower": "Izote"
+ },
+ "SX": {
+  "dish": "Johnny Cake"
+ },
+ "SY": {
+  "dish": "Kibbeh",
+  "flower": "Jasmine"
+ },
+ "SZ": {
+  "dish": "Sishwala"
+ },
+ "TC": {
+  "dish": "Conch Fritters"
+ },
+ "TD": {
+  "dish": "Boule"
+ },
+ "TG": {
+  "dish": "Fufu"
+ },
+ "TH": {
+  "dish": "Pad Thai",
+  "flower": "Golden Shower"
+ },
+ "TJ": {
+  "dish": "Osh Palov"
+ },
+ "TL": {
+  "dish": "Ikan Pepes"
+ },
+ "TM": {
+  "dish": "Palov"
+ },
+ "TN": {
+  "dish": "Couscous",
+  "flower": "Jasmine"
+ },
+ "TO": {
+  "dish": "'Ota 'Ika",
+  "flower": "Heilala"
+ },
+ "TR": {
+  "dish": "Kebap",
+  "flower": "Tulip"
+ },
+ "TT": {
+  "dish": "Doubles",
+  "flower": "Chaconia"
+ },
+ "TV": {
+  "dish": "Pulaka",
+  "flower": "Plumeria"
+ },
+ "TZ": {
+  "dish": "Ugali",
+  "flower": "African Violet"
+ },
+ "UA": {
+  "dish": "Borscht",
+  "flower": "Sunflower"
+ },
+ "UG": {
+  "dish": "Matoke"
+ },
+ "US": {
+  "dish": "Hamburger",
+  "flower": "Rose"
+ },
+ "UY": {
+  "dish": "Chivito",
+  "flower": "Ceibo Flower"
+ },
+ "UZ": {
+  "dish": "Plov"
+ },
+ "VA": {
+  "dish": "Fettuccine alla Papalina"
+ },
+ "VC": {
+  "dish": "Roasted Breadfruit and Fried Jackfish",
+  "flower": "Soufriere Tree"
+ },
+ "VE": {
+  "dish": "Pabellón Criollo",
+  "flower": "Flor de Mayo"
+ },
+ "VG": {
+  "dish": "Fish and Fungi"
+ },
+ "VI": {
+  "dish": "Fungi"
+ },
+ "VN": {
+  "dish": "Phở",
+  "flower": "Lotus"
+ },
+ "VU": {
+  "dish": "Laplap",
+  "flower": "Hibiscus"
+ },
+ "WF": {
+  "dish": "Palusami"
+ },
+ "WS": {
+  "dish": "Oka",
+  "flower": "Teuila"
+ },
+ "XK": {
+  "dish": "Flia"
+ },
+ "YE": {
+  "dish": "Saltah",
+  "flower": "Coffee Flower"
+ },
+ "ZA": {
+  "dish": "Bobotie",
+  "flower": "King Protea"
+ },
+ "ZM": {
+  "dish": "Nshima"
+ },
+ "ZW": {
+  "dish": "Sadza",
+  "flower": "Flame Lily"
+ }
+}

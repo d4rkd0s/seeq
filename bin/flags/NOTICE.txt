@@ -1,0 +1,34 @@
+Flag assets in this directory
+==============================
+
+Source project : flag-icons (https://github.com/lipis/flag-icons)
+Author         : Panayiotis Lipiridis and contributors
+License        : MIT License (see LICENSE in this directory)
+Fetched from   : https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/<code>.svg
+Upstream commit: 086f7e97d657358203916dbe84f61c2bccaa81eb (main, 2026-04-07)
+Fetched on     : 2026-07-19
+
+What's here
+-----------
+One SVG per ISO 3166-1 alpha-2 country code needed by
+bin/country_borders.json, named "<lowercase-iso2>.svg" (e.g. us.svg,
+fi.svg). Files are copied verbatim from the flag-icons "4x3" flag set
+(non-square aspect ratio flags at their natural proportions) and are
+otherwise unmodified.
+
+Why this source
+----------------
+flag-icons is MIT licensed, widely used, keyed by ISO-3166-1-alpha-2
+filenames (a direct match for this project's iso2 codes), and ships
+small, crisp, dependency-free SVGs suitable for baking into an
+offline-first app. License text was verified directly against the
+upstream repository (LICENSE file and GitHub API license metadata)
+before bulk-downloading, per project policy of not trusting a cached
+assumption about a license.
+
+Attribution / redistribution
+-----------------------------
+The MIT License permits copying, modifying, and redistributing these
+files (including as part of this application) provided the original
+copyright notice and permission notice are retained. That notice is
+preserved verbatim in the LICENSE file alongside this one.

@@ -7,7 +7,7 @@ widget) let the OPERATOR start/stop RX, start/stop the chaser, request a target/
 skip, and hit STOP+UNKEY. Every action is logged to data/actions.log. Set
 COA_DRYRUN=1 to log intended commands without executing them (used for testing).
 """
-import http.server, json, os, socketserver, subprocess, sys, time
+import http.server, json, os, re, socketserver, subprocess, sys, time, urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adif
@@ -15,7 +15,11 @@ import dxcc
 import logbook
 import station_config
 import world_map                      # embedded coastline path (no network at runtime)
+import country_borders                # embedded country outlines (Natural Earth 50m admin-0)
+import state_borders                  # embedded state/province outlines (Natural Earth 50m admin-1)
+import country_adjacency              # ISO2 -> neighboring ISO2s (geodatasource/country-borders)
 import logsync                        # QRZ Logbook status (read-only here) + sync subprocess
+import qrz_xml_api                    # QRZ XML (callsign/bio/photo) lookup -- separate subscription+auth from Logbook
 
 _C = station_config.load()
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -73,6 +77,31 @@ CONFIG = {"mycall": MYCALL, "mygrid": MYGRID, "band": _C.get("BAND", ""),
           "max_repeat": int(_C.get("MAX_REPEAT", 6)),
           "snr_floor_default": int(_C.get("SNR_FLOOR", -16))}
 
+# Pre-encoded once at import time (349KB/261KB) rather than on every request --
+# these are only fetched lazily by the map widget's JS, never inlined into PAGE.
+COUNTRY_BORDERS_JSON = json.dumps(country_borders.COUNTRIES, separators=(",", ":")).encode()
+STATE_BORDERS_JSON = json.dumps(state_borders.STATES, separators=(",", ":")).encode()
+COUNTRY_ADJACENCY_JSON = json.dumps(country_adjacency.ADJACENCY, separators=(",", ":")).encode()
+
+
+def _load_dish_flower():
+    """ISO2 -> {"dish":..., "flower":...} (either key may be absent when
+    unknown) for the country info card. Hand/research-curated (no free geo
+    dataset has this), not part of the Natural Earth conversion pipeline --
+    fails open to {} if the file doesn't exist yet, same convention as
+    every other embedded-data loader in this app."""
+    try:
+        with open(os.path.join(_BIN, "country_dish_flower.json")) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+DISH_FLOWER_JSON = json.dumps(_load_dish_flower(), separators=(",", ":")).encode()
+
+FLAGS_DIR = os.path.join(_BIN, "flags")
+_FLAG_CODE_RE = re.compile(r"^[a-z]{2}$")  # matches flag-icons' iso2-lowercase.svg naming
+
 PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYCALL__</title>
 <style>
  body{background:#0d1117;color:#c9d1d9;font-family:system-ui,sans-serif;margin:0;padding:14px}
@@ -106,12 +135,24 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYC
     facto color via the no-class fallback; made explicit here rather than
     left implicit. ---- */
  #events .info{color:#d2a8ff}
- #map{width:100%;display:block;background:#0d1117;border-radius:4px}
+ #map{width:100%;display:block;background:#0d1117;border-radius:4px;cursor:grab;touch-action:none}
  .mlabel{font-size:calc(11px * var(--map-scale, 1));font-family:ui-monospace,monospace;font-weight:600}
- #map .dot-rx{r:calc(2.2px * var(--map-scale, 1))}
- #map .dot-home{r:calc(3.5px * var(--map-scale, 1))}
- #map .dot-tx{r:calc(3px * var(--map-scale, 1))}
- #map .dot-qso{r:calc(3px * var(--map-scale, 1))}
+ /* ---- every CONTACT dot type is clickable (opens the country info card +
+    locks the map zoom onto it) -- cursor + hover-grow signal that
+    uniformly. home is the operator's own station, not a contact, so it
+    stays non-interactive. ---- */
+ #map .dot-rx,#map .dot-tx,#map .dot-qso{cursor:pointer}
+ #map .dot-rx:hover,#map .dot-tx:hover,#map .dot-qso:hover{r:calc(6.5px * var(--map-scale, 1))}
+ #map .dot-rx{r:calc(3.4px * var(--map-scale, 1))}
+ #map .dot-home{r:calc(5px * var(--map-scale, 1))}
+ #map .dot-tx{r:calc(5px * var(--map-scale, 1))}
+ #map .dot-qso{r:calc(4.6px * var(--map-scale, 1))}
+ /* ---- country/state border lines: subdued so the RX/QSO/TX overlays
+    (the actual point of the map) stay the visual focus. Country lines a
+    shade brighter than state lines -- secondary detail, visible mainly
+    once zoomed in. vector-effect keeps stroke width constant across zoom. ---- */
+ #countryBorders path{fill:none;stroke:#3d4a5c;stroke-width:0.5;vector-effect:non-scaling-stroke}
+ #stateBorders path{fill:none;stroke:#2a323d;stroke-width:0.35;vector-effect:non-scaling-stroke}
  .txflow{animation:flow 1s linear infinite}
  @keyframes flow{to{stroke-dashoffset:-17}}
  @keyframes pulse{50%{opacity:.35}}
@@ -284,6 +325,29 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYC
  .helpClose{background:none;border:1px solid #30363d;color:#8b949e;border-radius:5px;
   width:26px;height:26px;cursor:pointer;font-size:14px;line-height:1}
  .helpClose:hover{color:#c9d1d9;border-color:#484f58}
+ /* ---- country info card: a SMALL popup anchored above the specific map
+    point clicked (a contact dot or a Logbook row's grid) -- not a
+    dashboard-wide modal. position:fixed, left/top set in JS by
+    popupScreenPos(); no full-screen backdrop, so the rest of the
+    dashboard stays visible/usable while it's open. ---- */
+ #countryCard{position:fixed;z-index:10600;pointer-events:none}
+ #countryCardBox{pointer-events:auto;width:300px;max-width:92vw;background:#161b22;
+  border:1px solid #30363d;border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.55);position:relative}
+ #countryCardBox::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
+  border:7px solid transparent;border-top-color:#30363d}
+ #countryCardBox::before{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%) translateY(-1px);
+  border:6px solid transparent;border-top-color:#161b22;z-index:1}
+ #ccTitle{font-size:14px;font-weight:700;color:#58a6ff}
+ #ccTop{display:flex;align-items:center;gap:12px;padding:12px 14px 4px}
+ #ccFlag{line-height:1;min-width:56px}
+ #ccFlag img{width:56px;height:auto;border-radius:3px;border:1px solid #30363d;display:block}
+ #ccPhoto{max-width:110px;max-height:80px;border-radius:6px;object-fit:cover;border:1px solid #30363d}
+ #ccFacts{padding:4px 14px 0}
+ .ccRow{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #21262d;font-size:12px}
+ .ccLabel{color:#8b949e}
+ .ccVal{color:#c9d1d9;font-weight:600;text-align:right}
+ #ccPhotoStatus{padding:4px 14px 0;font-size:11px;color:#8b949e}
+ #countryCard .arow{padding:0 14px 12px;margin-top:8px}
  .helpTabs{display:flex;gap:4px;padding:8px 16px 0}
  .helpTab{background:none;border:1px solid #30363d;border-bottom:none;color:#8b949e;
   border-radius:6px 6px 0 0;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer}
@@ -335,6 +399,8 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYC
  #lbTable td.lb-confirmed{color:#3fb950;font-weight:700}
  #lbTable td.lb-uploaded{color:#56d4dd}
  #lbTable td.lb-notsynced{color:#8b949e}
+ #lbTable tr.lbRow{cursor:pointer}
+ #lbTable tr.lbRow:hover{background:#161b22}
  .widget[data-key=status]{width:100%;height:66px}
 
  .actionbtn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:5px;
@@ -535,6 +601,7 @@ chmod 600 ~/.config/cota/qrz.key</pre>
   <div class=wbody style="padding:4px">
    <svg id=map viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet">
     <path d="__WORLD__" fill="#1c2430" stroke="#30363d" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
+    <g id=stateBorders></g><g id=countryBorders></g>
     <g id=rx></g><g id=qso></g><g id=tx></g><g id=home></g>
    </svg>
   </div>
@@ -680,6 +747,30 @@ chmod 600 ~/.config/cota/qrz.key</pre>
       <code>COA_DRYRUN</code>: every action is logged but never actually executed
       (no rig, no network) — used for safely testing the dashboard itself.</li>
     </ul>
+   </div>
+  </div>
+ </div>
+</div>
+<div id=countryCard style="display:none">
+ <div id=countryCardBox>
+  <div class=helpHead>
+   <div class=modalTitle id=ccTitle>—</div>
+   <button id=countryCardClose class=helpClose title="close">✕</button>
+  </div>
+  <div class=modalBody>
+   <div id=ccTop>
+    <div id=ccFlag>—</div>
+    <img id=ccPhoto style="display:none">
+   </div>
+   <div id=ccFacts>
+    <div class=ccRow><span class=ccLabel>Callsign</span><span id=ccCall class=ccVal>—</span></div>
+    <div class=ccRow><span class=ccLabel>Population</span><span id=ccPop class=ccVal>—</span></div>
+    <div id=ccDishRow class=ccRow style="display:none"><span class=ccLabel>National dish</span><span id=ccDish class=ccVal>—</span></div>
+    <div id=ccFlowerRow class=ccRow style="display:none"><span class=ccLabel>National flower</span><span id=ccFlower class=ccVal>—</span></div>
+   </div>
+   <div id=ccPhotoStatus class=dim></div>
+   <div class=arow style="justify-content:flex-end;margin-top:10px">
+    <button id=ccCallBtn class="actionbtn warn" style="display:none">Call this station</button>
    </div>
   </div>
  </div>
@@ -915,6 +1006,30 @@ const VB_ANIM_MS=450;
 const MIN_VB_W=110, MIN_VB_H=55;            // ~2 Maidenhead grid fields (40°lon x 20°lat)
 let mapMode='auto';
 
+/* ---- hand-rolled pan/zoom: pure viewBox math, no new dependencies. Drag
+   pans with "grab the map" semantics (content follows the cursor); wheel
+   zooms toward the cursor position. Both pure functions for Node-harness
+   testing; the DOM-touching event wiring below just calls these and
+   assigns straight into vb/vbTarget (no eased animation during an active
+   drag/zoom -- that's for programmatic auto-fit jumps only). ---- */
+function panViewBox(vb, dxPx, dyPx, svgPxW, svgPxH){
+ const sx=vb.w/svgPxW, sy=vb.h/svgPxH;
+ let x=vb.x-dxPx*sx, y=vb.y-dyPx*sy;
+ x=Math.max(0,Math.min(MW-vb.w,x));
+ y=Math.max(0,Math.min(MH-vb.h,y));
+ return {x,y,w:vb.w,h:vb.h};
+}
+function zoomViewBox(vb, factor, cxFrac, cyFrac){
+ const px=vb.x+cxFrac*vb.w, py=vb.y+cyFrac*vb.h;
+ const AR=MW/MH;
+ let w=Math.max(MIN_VB_W,Math.min(MW,vb.w*factor));
+ let h=w/AR;
+ if(h>MH){h=MH;w=h*AR;} else if(h<MIN_VB_H){h=MIN_VB_H;w=h*AR;}
+ let x=px-cxFrac*w, y=py-cyFrac*h;
+ x=Math.max(0,Math.min(MW-w,x));
+ y=Math.max(0,Math.min(MH-h,y));
+ return {x,y,w,h};
+}
 function lerp(a,b,t){return a+(b-a)*t;}
 function applyViewBox(v){
  const svg=document.getElementById('map');
@@ -963,13 +1078,53 @@ function computeBBox(pts){
  if(x+w>MW)x=MW-w; if(y+h>MH)y=MH-h;
  return {x,y,w,h};
 }
-/* ---- while calling/mid-QSO with a target, zoom tight to just HOME + that
-   target instead of the full heard/worked point cloud -- makes the beam/line
-   to whoever we're actively pursuing the obvious focus. renderTX() clears
-   mapPoints.tx the moment state leaves calling/qso, so this naturally zooms
-   back out to the full picture on its own once we move to the next target. ---- */
+/* ---- neighbor auto-zoom: resolve the target's DXCC country name
+   (callCountry(), already used for the CALLING cockpit item) against
+   Natural Earth's admin-0 list to get an ISO2, then union that country's
+   bbox with every bordering country's bbox (country_adjacency.json).
+   DXCC entities that don't map onto a single Natural Earth country (Puerto
+   Rico, Hawaii, Alaska, etc. -- distinct DXCC entities but not distinct
+   Natural Earth political countries) gracefully resolve to null, falling
+   back to the plain target-point framing below. ---- */
+function resolveCountryIso2(dxccName, countries){
+ if(!dxccName) return null;
+ const hit=(countries||[]).find(c=>c.name===dxccName||c.admin===dxccName);
+ return hit ? (hit.iso2||null) : null;
+}
+function unionBBox(boxes){
+ let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+ for(const b of boxes){
+  if(!b) continue;
+  x0=Math.min(x0,b[0]); y0=Math.min(y0,b[1]); x1=Math.max(x1,b[2]); y1=Math.max(y1,b[3]);
+ }
+ return (x0===Infinity) ? null : [x0,y0,x1,y1];
+}
+function neighborZoomBBox(targetIso2, countriesByIso2, adjacency){
+ if(!targetIso2) return null;
+ const target=(countriesByIso2||{})[targetIso2];
+ if(!target || !target.bbox) return null;
+ const neighbors=(adjacency||{})[targetIso2]||[];
+ const boxes=[target.bbox];
+ for(const iso of neighbors){
+  const n=(countriesByIso2||{})[iso];
+  if(n && n.bbox) boxes.push(n.bbox);
+ }
+ return unionBBox(boxes);
+}
+/* ---- while calling/mid-QSO with a target, zoom tight to HOME + target +
+   (when resolvable) the target's country and its neighbors, instead of the
+   full heard/worked point cloud -- makes the beam/line to whoever we're
+   actively pursuing the obvious focus, with real geographic context.
+   renderTX() clears mapPoints.tx the moment state leaves calling/qso, so
+   this naturally zooms back out to the full picture on its own once we
+   move to the next target. ---- */
 function computeTargetBBox(){
  const pts=[]; if(HOME) pts.push(HOME); if(mapPoints.tx) pts.push(mapPoints.tx);
+ if(lastEngine && lastEngine.target){
+  const iso2=resolveCountryIso2(callCountry(lastEngine.target), borderCountries);
+  const nb=neighborZoomBBox(iso2, countriesByIso2, borderAdjacency);
+  if(nb){ pts.push([nb[0],nb[1]]); pts.push([nb[2],nb[3]]); }
+ }
  return computeBBox(pts.length?pts:null);
 }
 function updateMapZoom(){
@@ -1007,12 +1162,129 @@ function updateSnrRiskUI(floorDb){
  document.getElementById('snrRiskLabel').textContent=r.label;
 }
 
+/* ---- country/state border lines: fetched once (not on every tick --
+   static data, ~610KB combined) and rendered as plain SVG paths already
+   projected into the map's 1000x500 space server-side, so no client-side
+   geometry work is needed here. Fire-and-forget -- doesn't block the rest
+   of page init, and a failed fetch just leaves the map without borders
+   rather than breaking anything else. ---- */
+let borderCountries=[], countriesByIso2={}, borderAdjacency={}, dishFlowerByIso2={};
+async function loadBorders(){
+ try{
+  const [cr, sr, ar, dr] = await Promise.all(
+   [fetch('/borders/countries'), fetch('/borders/states'), fetch('/borders/adjacency'), fetch('/borders/dish_flower')]);
+  const countries = cr.ok ? await cr.json() : [];
+  const states = sr.ok ? await sr.json() : [];
+  borderAdjacency = ar.ok ? await ar.json() : {};
+  dishFlowerByIso2 = dr.ok ? await dr.json() : {};
+  borderCountries = countries;
+  countriesByIso2 = {};
+  for(const c of countries) if(c.iso2) countriesByIso2[c.iso2]=c;
+  document.getElementById('countryBorders').innerHTML =
+   countries.map(c=>`<path d="${c.path}" data-iso2="${esc(c.iso2||'')}" data-name="${esc(c.name||'')}"/>`).join('');
+  document.getElementById('stateBorders').innerHTML =
+   states.map(s=>`<path d="${s.path}"/>`).join('');
+ }catch(e){}
+}
+
+/* ---- popup position: convert an SVG-space point (px,py, in the map's
+   1000x500 coordinate space) to a fixed on-screen {left,top} that sits the
+   popup ABOVE the point, horizontally centered on it, clamped to the
+   viewport. Pure -- rect/vb/viewport size all passed in rather than read
+   from window/DOM globals, so this is Node-harness testable. ---- */
+function popupScreenPos(rect, vb, px, py, popupW, popupH, gap, viewportW, viewportH){
+ const fracX=(px-vb.x)/vb.w, fracY=(py-vb.y)/vb.h;
+ const anchorX=rect.left+fracX*rect.width, anchorY=rect.top+fracY*rect.height;
+ let left=anchorX-popupW/2, top=anchorY-popupH-gap;
+ left=Math.max(4,Math.min(viewportW-popupW-4,left));
+ top=Math.max(4,top);
+ return {left,top,anchorX,anchorY};
+}
+function closeCountryCard(){
+ document.getElementById('countryCard').style.display='none';
+}
+/* ---- country info card: a small popup (not a dashboard-wide modal),
+   opened by clicking any contact dot (map) or Logbook row, anchored just
+   above that station's specific point on the map (its grid if known, else
+   its country's bbox center). Shows flag/name/pop immediately (all
+   offline data, already loaded via loadBorders()); locks the map zoom
+   onto the country's bbox (falls back to leaving the map as-is if the
+   call's DXCC name doesn't resolve to a Natural Earth country -- see
+   resolveCountryIso2); fetches the QRZ photo asynchronously afterward so
+   the rest of the card isn't blocked on a network round-trip. ---- */
+async function openCountryCard(call, grid){
+ if(!call) return;
+ const iso2=resolveCountryIso2(callCountry(call), borderCountries);
+ const country=iso2?countriesByIso2[iso2]:null;
+ document.getElementById('ccTitle').textContent=country?country.name:(callCountry(call)||call);
+ document.getElementById('ccCall').textContent=call;
+ // real flag SVGs (bin/flags/, downloaded once from lipis/flag-icons) --
+ // Unicode flag emoji don't reliably render on Linux/Chrome (missing
+ // color-emoji font support shows boxes/letters instead), so this uses an
+ // actual image with a graceful hide-on-missing fallback, not an emoji one.
+ document.getElementById('ccFlag').innerHTML=iso2
+  ?`<img src="/flags/${iso2.toLowerCase()}.svg" alt="${esc(iso2)}" onerror="this.style.display='none'">`
+  :'';
+ document.getElementById('ccPop').textContent=(country&&country.pop)
+  ?country.pop.toLocaleString()+(country.pop_year?` (${country.pop_year})`:''):'—';
+ const df=iso2?dishFlowerByIso2[iso2]:null;
+ const dishRow=document.getElementById('ccDishRow'), flowerRow=document.getElementById('ccFlowerRow');
+ if(df&&df.dish){ dishRow.style.display='flex'; document.getElementById('ccDish').textContent=df.dish; }
+ else dishRow.style.display='none';
+ if(df&&df.flower){ flowerRow.style.display='flex'; document.getElementById('ccFlower').textContent=df.flower; }
+ else flowerRow.style.display='none';
+ const photo=document.getElementById('ccPhoto'), photoStatus=document.getElementById('ccPhotoStatus');
+ photo.style.display='none'; photo.removeAttribute('src'); photoStatus.textContent='loading photo…';
+ const callBtn=document.getElementById('ccCallBtn');
+ const isMe=CFG&&call===CFG.mycall;
+ callBtn.style.display=isMe?'none':'inline-block';
+ callBtn.dataset.call=call;
+ const card=document.getElementById('countryCard');
+ card.style.display='block';
+ // lock the map: same manual-mode mechanism as drag/wheel (stops
+ // updateMapZoom()'s auto-fit from immediately overriding this).
+ mapMode='manual';
+ document.getElementById('mapAuto').classList.remove('active');
+ document.getElementById('mapWorld').classList.remove('active');
+ if(country&&country.bbox){
+  const [x0,y0,x1,y1]=country.bbox;
+  animateViewBoxTo(computeBBox([[x0,y0],[x1,y1]]));
+ }
+ // anchor the popup above the specific point: the station's own grid if
+ // known, else the country's bbox center, else leave the popup wherever
+ // it last was (better than vanishing).
+ const anchorLL=grid?grid2ll(grid):null;
+ const anchorPt=anchorLL?ll2xy(anchorLL):(country&&country.bbox
+  ?[(country.bbox[0]+country.bbox[2])/2,(country.bbox[1]+country.bbox[3])/2]:null);
+ if(anchorPt){
+  const rect=document.getElementById('map').getBoundingClientRect();
+  const box=document.getElementById('countryCardBox');
+  const bw=box.getBoundingClientRect().width||300, bh=box.getBoundingClientRect().height||140;
+  const pos=popupScreenPos(rect, vbTarget, anchorPt[0], anchorPt[1], bw, bh, 14, window.innerWidth, window.innerHeight);
+  card.style.left=pos.left+'px';
+  card.style.top=pos.top+'px';
+ }
+ try{
+  const r=await fetch('/qrz/lookup?call='+encodeURIComponent(call));
+  const j=await r.json();
+  if(j.ok&&j.fields&&j.fields.image){
+   photo.src=j.fields.image; photo.style.display='block'; photoStatus.textContent='';
+  }else if(!j.configured){
+   photoStatus.textContent='QRZ XML lookup not configured';
+  }else if(!j.ok){
+   photoStatus.textContent='photo lookup failed: '+(j.error||'unknown error');
+  }else{
+   photoStatus.textContent='no photo on file';
+  }
+ }catch(e){ photoStatus.textContent=''; }
+}
+
 async function loadCfg(){
  try{
   const r=await fetch('/config'); if(!r.ok) return; CFG=await r.json();
   const ll=grid2ll(CFG.mygrid); if(ll) HOME=ll2xy(ll);
   if(HOME) document.getElementById('home').innerHTML=
-   `<circle class=dot-home cx="${HOME[0]}" cy="${HOME[1]}" fill="#e3b341" stroke="#0d1117" stroke-width="1" vector-effect="non-scaling-stroke"/>`+
+   `<circle class=dot-home cx="${HOME[0]}" cy="${HOME[1]}" fill="#e3b341" stroke="#0d1117" stroke-width="1" vector-effect="non-scaling-stroke"><title>${esc(CFG.mycall)} — home</title></circle>`+
    `<text x="${HOME[0]+7}" y="${HOME[1]+4}" class=mlabel fill="#e3b341">${esc(CFG.mycall)}</text>`;
   updateMapZoom();
   document.getElementById('cpBand').textContent=CFG.band||'—';
@@ -1267,12 +1539,16 @@ async function loadLogbook(){
  try{
   const r=await fetch('/logbook?t='+Date.now()); if(!r.ok) return;
   const d=await r.json();
-  let h='<tr><th>UTC</th><th>call</th><th>grid</th><th>band</th><th>sent</th><th>rcvd</th><th>QRZ</th></tr>';
+  let h='<tr><th>UTC</th><th>call</th><th>country</th><th>grid</th><th>band</th><th>sent</th><th>rcvd</th><th>QRZ</th></tr>';
   for(const row of d.rows||[]){
    const t=row.time?`${row.time.slice(0,2)}:${row.time.slice(2,4)}`:'';
    const dte=row.date?`${row.date.slice(4,6)}-${row.date.slice(6,8)}`:'';
    const [label,cls]=LB_MARKS[row.qrz]||[row.qrz,''];
-   h+=`<tr><td>${esc(dte)} ${esc(t)}</td><td>${esc(row.call)}</td><td>${esc(row.grid)}</td>`+
+   // country: derived client-side from the callsign (same DXCC prefix
+   // table as the map/cockpit), not a server field -- Logan asked for
+   // this as a local-only column.
+   const country=callCountry(row.call)||'—';
+   h+=`<tr class=lbRow data-call="${esc(row.call)}" data-grid="${esc(row.grid||'')}"><td>${esc(dte)} ${esc(t)}</td><td>${esc(row.call)}</td><td>${esc(country)}</td><td>${esc(row.grid)}</td>`+
       `<td>${esc(row.band)}</td><td>${esc(row.sent)}</td><td>${esc(row.rcvd)}</td>`+
       `<td class="${cls}">${esc(label)}</td></tr>`;
   }
@@ -1306,7 +1582,7 @@ function renderRX(s){
   const [x,y]=ll2xy(ll), op=Math.max(.15,1-age/900);
   pts.push([x,y]);
   h+=`<line x1="${HOME[0]}" y1="${HOME[1]}" x2="${x}" y2="${y}" stroke="#56d4dd" stroke-width="0.6" opacity="${(op*.45).toFixed(2)}" vector-effect="non-scaling-stroke"/>`;
-  h+=`<circle class=dot-rx cx="${x}" cy="${y}" fill="#56d4dd" opacity="${op.toFixed(2)}"/>`;
+  h+=`<circle class=dot-rx cx="${x}" cy="${y}" fill="#56d4dd" opacity="${op.toFixed(2)}" data-call="${esc(call)}" data-grid="${esc(e.g)}"><title>${esc(call)} ${esc(e.g)} — click for details</title></circle>`;
  }
  document.getElementById('rx').innerHTML=h;
  mapPoints.rx=pts;
@@ -1327,7 +1603,7 @@ function renderQSOs(s){
   const [x,y]=ll2xy(ll);
   pts.push([x,y]);
   h+=`<line x1="${HOME[0]}" y1="${HOME[1]}" x2="${x}" y2="${y}" stroke="#3fb950" stroke-width="1.1" opacity="0.7" vector-effect="non-scaling-stroke"/>`;
-  h+=`<circle class=dot-qso cx="${x}" cy="${y}" fill="#3fb950" stroke="#0d1117" stroke-width="0.6" vector-effect="non-scaling-stroke"/>`;
+  h+=`<circle class=dot-qso cx="${x}" cy="${y}" fill="#3fb950" stroke="#0d1117" stroke-width="0.6" vector-effect="non-scaling-stroke" data-call="${esc(q.call||'')}" data-grid="${esc(q.grid||'')}"><title>${esc(q.call||'')} ${esc(q.grid||'')}${q.band?' — '+esc(q.band):''} — QSO'd</title></circle>`;
   h+=`<text x="${x+6}" y="${y-6}" class=mlabel fill="#3fb950">${esc(q.call||'')}</text>`;
  }
  document.getElementById('qso').innerHTML=h;
@@ -1367,7 +1643,7 @@ function renderTX(e, chaserRunning){
  }else{
   h+=`<path d="${d}" fill="none" stroke="#f85149" stroke-width="2.4" opacity="0.5" vector-effect="non-scaling-stroke"/>`;
  }
- h+=`<circle class=dot-tx cx="${x2}" cy="${y2}" fill="#f85149"/>`;
+ h+=`<circle class=dot-tx cx="${x2}" cy="${y2}" fill="#f85149" data-call="${esc(e.target||'')}" data-grid="${esc(grid)}"><title>${esc(e.target||'')} — ${e.tx?'transmitting':'calling'}</title></circle>`;
  h+=`<text x="${x2+6}" y="${y2-6}" class=mlabel fill="#f85149">${esc(e.target||'')}</text>`;
  g.innerHTML=h;
  updateMapZoom();
@@ -1943,6 +2219,98 @@ function initWidgetChrome(){
 }
 document.getElementById('mapAuto').addEventListener('click',()=>setMapMode('auto'));
 document.getElementById('mapWorld').addEventListener('click',()=>setMapMode('world'));
+
+/* ---- manual pan/drag + wheel/pinch-zoom: any manual interaction drops
+   mapMode out of 'auto'/'world' (so updateMapZoom()'s auto-fit stops
+   fighting the user -- it already early-returns for any mode other than
+   'auto') and applies the new viewBox immediately, no eased animation
+   (that's reserved for programmatic auto-fit jumps). Re-enter Auto/World
+   any time via their buttons. ---- */
+(function(){
+ const svg=document.getElementById('map');
+ function toManual(){
+  if(mapMode!=='manual'){
+   mapMode='manual';
+   document.getElementById('mapAuto').classList.remove('active');
+   document.getElementById('mapWorld').classList.remove('active');
+  }
+ }
+ function applyVb(v){ vb=v; vbTarget=v; applyViewBox(v); scheduleSaveLayout(); }
+ let dragging=false, lastX=0, lastY=0;
+ svg.addEventListener('mousedown',(e)=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; svg.style.cursor='grabbing'; });
+ window.addEventListener('mousemove',(e)=>{
+  if(!dragging) return;
+  const rect=svg.getBoundingClientRect();
+  const dx=e.clientX-lastX, dy=e.clientY-lastY;
+  lastX=e.clientX; lastY=e.clientY;
+  toManual();
+  applyVb(panViewBox(vb,dx,dy,rect.width,rect.height));
+ });
+ window.addEventListener('mouseup',()=>{ if(dragging){dragging=false; svg.style.cursor='';} });
+ svg.addEventListener('wheel',(e)=>{
+  e.preventDefault();
+  const rect=svg.getBoundingClientRect();
+  const cxFrac=(e.clientX-rect.left)/rect.width, cyFrac=(e.clientY-rect.top)/rect.height;
+  const factor=e.deltaY>0?1.15:1/1.15;
+  toManual();
+  applyVb(zoomViewBox(vb,factor,cxFrac,cyFrac));
+ },{passive:false});
+ let touchMode=null, lastTX=0, lastTY=0, lastPinch=0;
+ function pinchDist(t){ return Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY); }
+ svg.addEventListener('touchstart',(e)=>{
+  if(e.touches.length===1){ touchMode='pan'; lastTX=e.touches[0].clientX; lastTY=e.touches[0].clientY; }
+  else if(e.touches.length===2){ touchMode='pinch'; lastPinch=pinchDist(e.touches); }
+ },{passive:true});
+ svg.addEventListener('touchmove',(e)=>{
+  const rect=svg.getBoundingClientRect();
+  if(touchMode==='pan' && e.touches.length===1){
+   e.preventDefault();
+   const dx=e.touches[0].clientX-lastTX, dy=e.touches[0].clientY-lastTY;
+   lastTX=e.touches[0].clientX; lastTY=e.touches[0].clientY;
+   toManual();
+   applyVb(panViewBox(vb,dx,dy,rect.width,rect.height));
+  }else if(touchMode==='pinch' && e.touches.length===2){
+   e.preventDefault();
+   const dist=pinchDist(e.touches);
+   const factor=lastPinch/dist;
+   lastPinch=dist;
+   const cx=(e.touches[0].clientX+e.touches[1].clientX)/2-rect.left;
+   const cy=(e.touches[0].clientY+e.touches[1].clientY)/2-rect.top;
+   toManual();
+   applyVb(zoomViewBox(vb,factor,cx/rect.width,cy/rect.height));
+  }
+ },{passive:false});
+ svg.addEventListener('touchend',()=>{ touchMode=null; });
+ // click any contact dot (RX/QSO/TX) to lock the map onto its country and
+ // open the country info card -- see openCountryCard().
+ svg.addEventListener('click',(e)=>{
+  const dot=e.target.closest('.dot-rx,.dot-qso,.dot-tx');
+  if(!dot) return;
+  const call=dot.dataset.call;
+  if(call) openCountryCard(call, dot.dataset.grid);
+ });
+})();
+document.getElementById('countryCardClose').addEventListener('click',closeCountryCard);
+// click anywhere outside the popup (but not on a dot/row that opens a new
+// one -- that just repositions it) closes it; Escape does too.
+document.addEventListener('click',(e)=>{
+ if(document.getElementById('countryCard').style.display==='none') return;
+ if(e.target.closest('#countryCardBox,.dot-rx,.dot-qso,.dot-tx,.lbRow')) return;
+ closeCountryCard();
+});
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeCountryCard(); });
+// Logbook rows: same click-to-lock-zoom-and-show-card as map dots. Event
+// delegation since #lbTable is fully re-rendered on every loadLogbook().
+document.getElementById('lbTable').addEventListener('click',(e)=>{
+ const row=e.target.closest('.lbRow');
+ if(row&&row.dataset.call) openCountryCard(row.dataset.call, row.dataset.grid);
+});
+document.getElementById('ccCallBtn').addEventListener('click',async()=>{
+ const call=document.getElementById('ccCallBtn').dataset.call;
+ const r=await postAction('/action/target/pick',{call});
+ setActionsMsg(r.ok?`requested ${call} @ ${new Date().toLocaleTimeString()}`:'request failed');
+ closeCountryCard();
+});
 document.getElementById('resetLayout').addEventListener('click',resetLayout);
 
 initWidgetChrome();
@@ -1956,6 +2324,7 @@ wireHelp();
 document.getElementById('evRaw').addEventListener('change',renderEvents);
 document.getElementById('txwf').addEventListener('error',function(){this.style.display='none';});
 loadCfg().then(()=>{ tick(); loadBands().then(()=>{ buildAntBandsRow(); loadAntennas(); }); });
+loadBorders();
 setInterval(tick,5000);
 engTick(); setInterval(engTick,2000);
 setInterval(nextTxFastTick,150);           // smooth NEXT TX countdown between engTick polls
@@ -2025,6 +2394,44 @@ def _qrz_status():
         "fetched_at": cache["fetched_at"],
         "log_tail": qrz_sync_tail(30),
     }
+
+
+_qrz_xml_session = {"key": None, "at": 0}
+QRZ_XML_SESSION_TTL = 20 * 3600   # QRZ documents the session key as valid "for the rest of the day"
+
+
+def _qrz_xml_lookup(call):
+    """Bio/photo lookup for the country info card. Never raises -- every
+    failure mode (not configured, bad creds, transport error, session
+    expiry, callsign not found) comes back as a plain dict the caller can
+    render around, not an exception. Session key is cached in-memory
+    (cleared on dashboard restart, which is fine -- a fresh login on first
+    use is cheap and this isn't safety-relevant); one login+retry on a
+    session-expired lookup, not an unbounded retry loop."""
+    user, pw = logsync.read_xml_credentials()
+    if not user or not pw:
+        return {"configured": False, "ok": False, "error": "no QRZ XML credentials on file"}
+
+    def do_lookup():
+        return qrz_xml_api.lookup(_qrz_xml_session["key"], call)
+
+    if not _qrz_xml_session["key"] or (time.time() - _qrz_xml_session["at"]) > QRZ_XML_SESSION_TTL:
+        ok, key_or_err = qrz_xml_api.login(user, pw)
+        if not ok:
+            return {"configured": True, "ok": False, "error": key_or_err}
+        _qrz_xml_session["key"], _qrz_xml_session["at"] = key_or_err, time.time()
+    ok, fields_or_err = do_lookup()
+    if not ok:
+        # session key might have just expired server-side -- one fresh
+        # login + single retry, not an unbounded loop
+        ok2, key_or_err = qrz_xml_api.login(user, pw)
+        if not ok2:
+            return {"configured": True, "ok": False, "error": key_or_err}
+        _qrz_xml_session["key"], _qrz_xml_session["at"] = key_or_err, time.time()
+        ok, fields_or_err = do_lookup()
+        if not ok:
+            return {"configured": True, "ok": False, "error": fields_or_err}
+    return {"configured": True, "ok": True, "fields": fields_or_err}
 
 
 def _logbook_payload():
@@ -2237,6 +2644,31 @@ class H(http.server.SimpleHTTPRequestHandler):
                     self.send_body(f.read(), "application/json")
             except OSError:
                 self.send_body(b"{}", "application/json")
+        elif path == "/borders/countries":
+            self.send_body(COUNTRY_BORDERS_JSON, "application/json")
+        elif path == "/borders/states":
+            self.send_body(STATE_BORDERS_JSON, "application/json")
+        elif path == "/borders/adjacency":
+            self.send_body(COUNTRY_ADJACENCY_JSON, "application/json")
+        elif path == "/borders/dish_flower":
+            self.send_body(DISH_FLOWER_JSON, "application/json")
+        elif path.startswith("/flags/") and path.endswith(".svg"):
+            # strict [a-z]{2} check before touching the filesystem -- this
+            # segment comes straight from the URL, never trust it as a path
+            code = path[len("/flags/"):-len(".svg")]
+            if not _FLAG_CODE_RE.match(code):
+                return self._err(404, "no such flag")
+            try:
+                with open(os.path.join(FLAGS_DIR, code + ".svg"), "rb") as f:
+                    self.send_body(f.read(), "image/svg+xml")
+            except OSError:
+                self._err(404, "no such flag")
+        elif path == "/qrz/lookup":
+            qs = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            call = (qs.get("call", [""])[0] or "").strip().upper()
+            if not call:
+                return self._err(400, "call required")
+            self.send_body(json.dumps(_qrz_xml_lookup(call)).encode(), "application/json")
         elif path == "/actions/state":
             engine = {}
             try:

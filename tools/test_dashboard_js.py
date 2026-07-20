@@ -232,6 +232,108 @@ def run_rough_tx_label(secs):
     return json.loads(r.stdout)
 
 
+def extract_pan_zoom_viewbox_js():
+    """Slice panViewBox()/zoomViewBox() verbatim out of dashboard.py's
+    rendered PAGE, prefixed with the two small constant-declaration lines
+    they depend on (MW/MH, MIN_VB_W/MIN_VB_H) -- extracted separately
+    rather than widening the main window to span everything in between
+    (same technique as resolveTargetGrid()'s isGrid() dependency)."""
+    page = _dashboard_module().PAGE
+    c1_start = page.index("const MW=1000, MH=500;")
+    c1_end = page.index("\n", c1_start)
+    c2_start = page.index("const MIN_VB_W=110, MIN_VB_H=55;")
+    c2_end = page.index("\n", c2_start)
+    start = page.index("function panViewBox(")
+    end = page.index("\nfunction lerp(", start)
+    snippet = page[start:end]
+    assert "zoomViewBox" in snippet, (
+        "panViewBox()/zoomViewBox() not found between markers -- "
+        "dashboard.py layout changed, update the markers in tools/test_dashboard_js.py")
+    return page[c1_start:c1_end] + "\n" + page[c2_start:c2_end] + "\n" + snippet
+
+
+def run_pan_viewbox(vb, dx_px, dy_px, svg_px_w, svg_px_h):
+    js = extract_pan_zoom_viewbox_js()
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(panViewBox(%s, %r, %r, %r, %r)));"
+    ) % (json.dumps(vb), dx_px, dy_px, svg_px_w, svg_px_h)
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
+def run_zoom_viewbox(vb, factor, cx_frac, cy_frac):
+    js = extract_pan_zoom_viewbox_js()
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(zoomViewBox(%s, %r, %r, %r)));"
+    ) % (json.dumps(vb), factor, cx_frac, cy_frac)
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
+def extract_neighbor_zoom_js():
+    """Slice resolveCountryIso2()/unionBBox()/neighborZoomBBox() verbatim
+    out of dashboard.py's rendered PAGE, between their declaration and
+    computeTargetBBox() which consumes them."""
+    page = _dashboard_module().PAGE
+    start = page.index("function resolveCountryIso2(")
+    end = page.index("\nfunction computeTargetBBox(", start)
+    snippet = page[start:end]
+    assert "neighborZoomBBox" in snippet, (
+        "resolveCountryIso2()/neighborZoomBBox() not found between markers -- "
+        "dashboard.py layout changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_resolve_country_iso2(dxcc_name, countries):
+    js = extract_neighbor_zoom_js()
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(resolveCountryIso2(%s, %s)));"
+    ) % (json.dumps(dxcc_name), json.dumps(countries))
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
+def run_neighbor_zoom_bbox(target_iso2, countries_by_iso2, adjacency):
+    js = extract_neighbor_zoom_js()
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(neighborZoomBBox(%s, %s, %s)));"
+    ) % (json.dumps(target_iso2), json.dumps(countries_by_iso2), json.dumps(adjacency))
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
+def extract_popup_screen_pos_js():
+    """Slice popupScreenPos() verbatim out of dashboard.py's rendered PAGE,
+    between its declaration and openCountryCard() which consumes it."""
+    page = _dashboard_module().PAGE
+    start = page.index("function popupScreenPos(")
+    end = page.index("\nasync function openCountryCard(", start)
+    snippet = page[start:end]
+    assert "anchorX" in snippet, (
+        "popupScreenPos() not found between markers -- dashboard.py "
+        "layout changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_popup_screen_pos(rect, vb, px, py, popup_w, popup_h, gap, viewport_w, viewport_h):
+    js = extract_popup_screen_pos_js()
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(popupScreenPos(%s, %s, %r, %r, %r, %r, %r, %r, %r)));"
+    ) % (json.dumps(rect), json.dumps(vb), px, py, popup_w, popup_h, gap, viewport_w, viewport_h)
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
 class TestCallCountry(unittest.TestCase):
     def test_regression_pre_existing_prefix(self):
         result = run_call_country(["DL1ABC"])
@@ -467,6 +569,153 @@ class TestRoughTxLabel(unittest.TestCase):
         r = run_rough_tx_label(1.2)
         self.assertEqual(r["text"], "Transmitting in 1.20s")
         self.assertEqual(r["cls"], "tx-soon")
+
+
+class TestPanViewBox(unittest.TestCase):
+    """Hand-rolled drag-to-pan: content follows the cursor (grab-map
+    semantics, like Google Maps) -- dragging right reveals content that
+    was off-screen to the left, so viewBox.x decreases."""
+
+    def test_drag_right_decreases_x(self):
+        r = run_pan_viewbox({"x": 100, "y": 50, "w": 200, "h": 100}, 50, 0, 1000, 500)
+        self.assertAlmostEqual(r["x"], 90, places=3)
+        self.assertEqual(r["y"], 50)
+
+    def test_drag_down_decreases_y(self):
+        r = run_pan_viewbox({"x": 100, "y": 50, "w": 200, "h": 100}, 0, 50, 1000, 500)
+        self.assertAlmostEqual(r["y"], 40, places=3)
+
+    def test_clamped_at_left_edge(self):
+        r = run_pan_viewbox({"x": 5, "y": 0, "w": 200, "h": 100}, 500, 0, 1000, 500)
+        self.assertEqual(r["x"], 0)
+
+    def test_clamped_at_right_edge(self):
+        r = run_pan_viewbox({"x": 795, "y": 0, "w": 200, "h": 100}, -500, 0, 1000, 500)
+        self.assertEqual(r["x"], 800)  # MW(1000) - w(200)
+
+    def test_size_unchanged(self):
+        r = run_pan_viewbox({"x": 100, "y": 50, "w": 200, "h": 100}, 10, 10, 1000, 500)
+        self.assertEqual(r["w"], 200)
+        self.assertEqual(r["h"], 100)
+
+
+class TestZoomViewBox(unittest.TestCase):
+    """Hand-rolled wheel-zoom: zooms toward the cursor position (given as a
+    0..1 fraction of the map's rendered box), aspect ratio always locked to
+    MW/MH (2:1), clamped to [MIN_VB_W..MW] x [MIN_VB_H..MH]."""
+
+    def test_zoom_in_centered_shrinks_and_recenters(self):
+        r = run_zoom_viewbox({"x": 0, "y": 0, "w": 1000, "h": 500}, 0.5, 0.5, 0.5)
+        self.assertAlmostEqual(r["w"], 500, places=3)
+        self.assertAlmostEqual(r["h"], 250, places=3)
+        self.assertAlmostEqual(r["x"], 250, places=3)
+        self.assertAlmostEqual(r["y"], 125, places=3)
+
+    def test_aspect_ratio_always_locked(self):
+        r = run_zoom_viewbox({"x": 0, "y": 0, "w": 1000, "h": 500}, 0.3, 0.2, 0.8)
+        self.assertAlmostEqual(r["w"] / r["h"], 2.0, places=3)
+
+    def test_clamps_at_minimum_zoom_in(self):
+        r = run_zoom_viewbox({"x": 400, "y": 200, "w": 120, "h": 60}, 0.1, 0.5, 0.5)
+        self.assertGreaterEqual(r["w"], 110)
+        self.assertGreaterEqual(r["h"], 55)
+
+    def test_clamps_at_full_world_zoom_out(self):
+        r = run_zoom_viewbox({"x": 0, "y": 0, "w": 900, "h": 450}, 5, 0.5, 0.5)
+        self.assertEqual(r["w"], 1000)
+        self.assertEqual(r["h"], 500)
+
+    def test_stays_within_world_bounds_after_zoom(self):
+        r = run_zoom_viewbox({"x": 900, "y": 0, "w": 100, "h": 50}, 3, 0.9, 0.5)
+        self.assertGreaterEqual(r["x"], 0)
+        self.assertLessEqual(r["x"] + r["w"], 1000)
+
+
+class TestResolveCountryIso2(unittest.TestCase):
+    """DXCC entity names (from callCountry(), dxcc_prefixes.json) don't
+    always match Natural Earth's political admin-0 names 1:1 (e.g. "Puerto
+    Rico" vs "United States of America") -- resolveCountryIso2() must
+    gracefully return null for those rather than guessing wrong."""
+
+    COUNTRIES = [{"name": "Finland", "admin": "Finland", "iso2": "FI"},
+                 {"name": "United States of America", "admin": "United States of America", "iso2": "US"}]
+
+    def test_matches_by_name(self):
+        self.assertEqual(run_resolve_country_iso2("Finland", self.COUNTRIES), "FI")
+
+    def test_no_match_returns_null(self):
+        self.assertIsNone(run_resolve_country_iso2("Puerto Rico", self.COUNTRIES))
+
+    def test_empty_name_returns_null(self):
+        self.assertIsNone(run_resolve_country_iso2("", self.COUNTRIES))
+
+
+class TestNeighborZoomBBox(unittest.TestCase):
+    """Unions the target country's bbox with every neighbor's bbox (from
+    the adjacency table) -- graceful null when the target's country can't
+    be resolved or has no bbox, rather than throwing."""
+
+    COUNTRIES_BY_ISO2 = {
+        "FI": {"bbox": [557.3, 55.4, 587.6, 83.8]},
+        "SE": {"bbox": [540.0, 60.0, 560.0, 90.0]},
+        "NO": {"bbox": [520.0, 50.0, 545.0, 95.0]},
+        "RU": {"bbox": [576.0, 34.1, 1000.0, 135.6]},
+        "JP": {"bbox": [900.0, 130.0, 950.0, 160.0]},
+    }
+    ADJACENCY = {"FI": ["NO", "RU", "SE"], "JP": []}
+
+    def test_unions_target_and_all_neighbors(self):
+        r = run_neighbor_zoom_bbox("FI", self.COUNTRIES_BY_ISO2, self.ADJACENCY)
+        self.assertAlmostEqual(r[0], 520.0, places=3)   # min x across FI+SE+NO+RU
+        self.assertAlmostEqual(r[1], 34.1, places=3)    # min y
+        self.assertAlmostEqual(r[2], 1000.0, places=3)  # max x
+        self.assertAlmostEqual(r[3], 135.6, places=3)   # max y
+
+    def test_island_nation_with_no_neighbors_returns_own_bbox(self):
+        r = run_neighbor_zoom_bbox("JP", self.COUNTRIES_BY_ISO2, self.ADJACENCY)
+        self.assertEqual(r, [900.0, 130.0, 950.0, 160.0])
+
+    def test_unresolved_target_returns_null(self):
+        self.assertIsNone(run_neighbor_zoom_bbox(None, self.COUNTRIES_BY_ISO2, self.ADJACENCY))
+        self.assertIsNone(run_neighbor_zoom_bbox("XX", self.COUNTRIES_BY_ISO2, self.ADJACENCY))
+
+
+
+class TestPopupScreenPos(unittest.TestCase):
+    """The country card is a small popup anchored ABOVE a specific map
+    point (not a dashboard-wide modal) -- converts an SVG-space point to a
+    fixed-position screen coordinate via the map's current viewBox and
+    on-screen rendered box, centered horizontally on the point and sitting
+    just above it, clamped so it never renders off-screen."""
+
+    RECT = {"left": 0, "top": 0, "width": 1000, "height": 500}
+    VB = {"x": 0, "y": 0, "w": 1000, "h": 500}
+
+    def test_centers_above_the_point(self):
+        r = run_popup_screen_pos(self.RECT, self.VB, 500, 250, 200, 100, 10, 2000, 1000)
+        self.assertAlmostEqual(r["left"], 400, places=3)   # 500 - 200/2
+        self.assertAlmostEqual(r["top"], 140, places=3)    # 250 - 100 - 10
+        self.assertAlmostEqual(r["anchorX"], 500, places=3)
+        self.assertAlmostEqual(r["anchorY"], 250, places=3)
+
+    def test_accounts_for_a_zoomed_in_viewbox(self):
+        vb = {"x": 400, "y": 200, "w": 200, "h": 100}
+        r = run_popup_screen_pos(self.RECT, vb, 500, 250, 200, 100, 10, 2000, 1000)
+        # point is at the exact center of this sub-box -> still screen-center
+        self.assertAlmostEqual(r["anchorX"], 500, places=3)
+        self.assertAlmostEqual(r["anchorY"], 250, places=3)
+
+    def test_clamps_left_edge(self):
+        r = run_popup_screen_pos(self.RECT, self.VB, 5, 250, 200, 100, 10, 2000, 1000)
+        self.assertGreaterEqual(r["left"], 4)
+
+    def test_clamps_right_edge(self):
+        r = run_popup_screen_pos(self.RECT, self.VB, 995, 250, 200, 100, 10, 1000, 1000)
+        self.assertLessEqual(r["left"] + 200, 1000 - 4 + 0.001)
+
+    def test_clamps_top_edge(self):
+        r = run_popup_screen_pos(self.RECT, self.VB, 500, 2, 200, 100, 10, 2000, 1000)
+        self.assertGreaterEqual(r["top"], 4)
 
 
 if __name__ == "__main__":

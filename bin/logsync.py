@@ -40,6 +40,12 @@ KEY_PATH = os.path.join(CONF_DIR, "qrz.key")
 STATE_PATH = os.path.join(CONF_DIR, "qrz.state")
 API_URL = "https://logbook.qrz.com/api"
 
+# QRZ "XML Data" (callsign/bio lookup) credentials -- a DIFFERENT QRZ
+# subscription than the Logbook Data key above, and a different auth
+# mechanism (real QRZ.com username+password, not a static API key -- see
+# bin/qrz_xml_api.py). Two-line file: username on line 1, password on line 2.
+XML_CRED_PATH = os.path.join(CONF_DIR, "qrz_xml.key")
+
 NO_KEY_MSG = """\
 No QRZ API key found at {key_path}
 
@@ -68,6 +74,20 @@ def read_key():
             return f.read().strip()
     except OSError:
         return None
+
+
+def read_xml_credentials():
+    """(username, password) from XML_CRED_PATH, or (None, None) if
+    missing/malformed -- same fail-open convention as read_key(). Never
+    logged, never stored anywhere but this file."""
+    try:
+        with open(XML_CRED_PATH) as f:
+            lines = [l.strip() for l in f.readlines()]
+    except OSError:
+        return None, None
+    if len(lines) < 2 or not lines[0] or not lines[1]:
+        return None, None
+    return lines[0], lines[1]
 
 
 def read_offset():

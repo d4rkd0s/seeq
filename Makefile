@@ -12,6 +12,8 @@ test:
 	python3 tools/test_dashboard_js.py
 	python3 tools/test_dxcc.py
 	python3 tools/test_dashboard_actions.py
+	python3 tools/test_borders.py
+	python3 tools/test_qrz_xml.py
 
 selftest:
 	@echo "=== Running coa selftest ==="

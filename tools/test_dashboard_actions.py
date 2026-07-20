@@ -96,5 +96,43 @@ class TestValidateSnrFloor(unittest.TestCase):
         self.assertIn("range", err)
 
 
+class TestLoadDishFlower(unittest.TestCase):
+    """_load_dish_flower(): same fail-open convention as every other
+    embedded-data loader in this app (dxcc.py's _load_prefixes(),
+    country_borders.py's _load_countries(), etc.) -- research-curated data
+    (no free geo dataset has this), loaded once at import time into
+    DISH_FLOWER_JSON."""
+
+    def test_loaded_data_is_nonempty_dict(self):
+        self.assertGreater(len(dashboard._load_dish_flower()), 100)
+
+    def test_known_country_has_expected_shape(self):
+        d = dashboard._load_dish_flower()
+        self.assertIn("US", d)
+        self.assertIn("dish", d["US"])
+
+
+class TestFlagCodeRegex(unittest.TestCase):
+    """_FLAG_CODE_RE gates the /flags/<code>.svg endpoint before it ever
+    touches the filesystem -- must accept only the exact [a-z]{2} shape
+    flag-icons files are named with, and reject anything resembling a
+    path-traversal attempt."""
+
+    def test_accepts_valid_iso2(self):
+        self.assertIsNotNone(dashboard._FLAG_CODE_RE.match("us"))
+        self.assertIsNotNone(dashboard._FLAG_CODE_RE.match("fi"))
+
+    def test_rejects_uppercase(self):
+        self.assertIsNone(dashboard._FLAG_CODE_RE.match("US"))
+
+    def test_rejects_path_traversal_attempts(self):
+        for bad in ("../../etc/passwd", "..", "a/b", "a.b", "a..svg", ""):
+            self.assertIsNone(dashboard._FLAG_CODE_RE.match(bad), bad)
+
+    def test_rejects_wrong_length(self):
+        self.assertIsNone(dashboard._FLAG_CODE_RE.match("u"))
+        self.assertIsNone(dashboard._FLAG_CODE_RE.match("usa"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
