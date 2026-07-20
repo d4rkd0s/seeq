@@ -2035,7 +2035,9 @@ function wireActions(){
   if(chip){
    const call=chip.dataset.call; chip.disabled=true;
    const r=await postAction('/action/target/pick',{call});
-   document.getElementById('targetStatus').textContent=r.ok?`requested ${call} @ ${new Date().toLocaleTimeString()}`:'request failed';
+   const m=targetPickMessage(r.ok, !!(r.body&&r.body.chaser_running), call);
+   document.getElementById('targetStatus').textContent=m.msg;
+   if(m.needsConfirm) document.getElementById('chaseConfirmMsg').style.display='block';
    return;
   }
   if(e.target.id==='btnSkip'){
@@ -2305,10 +2307,26 @@ document.getElementById('lbTable').addEventListener('click',(e)=>{
  const row=e.target.closest('.lbRow');
  if(row&&row.dataset.call) openCountryCard(row.dataset.call, row.dataset.grid);
 });
+/* ---- target/pick writes a request file that's only ever read from
+   inside qso.py's hunt loop -- while the chaser isn't running, that's a
+   silent no-op (nothing shifts the cockpit STATE off "IDLE"; it's driven
+   purely by whether the chaser process is alive, not by this file). Never
+   claim success in that case -- prompt to confirm-start Automatic CQ
+   instead, same two-step confirm the "Automatic CQ" button itself uses. ---- */
+function targetPickMessage(ok, chaserRunning, call){
+ if(!ok) return {msg:'request failed', needsConfirm:false};
+ if(chaserRunning) return {msg:`requested ${call} — will be called next cycle`, needsConfirm:false};
+ return {msg:`${call} queued as next target — click "Confirm start Automatic CQ" below to begin`, needsConfirm:true};
+}
 document.getElementById('ccCallBtn').addEventListener('click',async()=>{
  const call=document.getElementById('ccCallBtn').dataset.call;
  const r=await postAction('/action/target/pick',{call});
- setActionsMsg(r.ok?`requested ${call} @ ${new Date().toLocaleTimeString()}`:'request failed');
+ const m=targetPickMessage(r.ok, !!(r.body&&r.body.chaser_running), call);
+ setActionsMsg(m.msg);
+ if(m.needsConfirm){
+  document.getElementById('chaseConfirmMsg').style.display='block';
+  document.getElementById('actionsWidget').scrollIntoView({behavior:'smooth',block:'center'});
+ }
  closeCountryCard();
 });
 document.getElementById('resetLayout').addEventListener('click',resetLayout);
@@ -2837,7 +2855,12 @@ class H(http.server.SimpleHTTPRequestHandler):
             obj["call"] = call
         atomic_write_json(path, obj)
         log_action(f"target/{kind}: {obj}")
-        self._ok({"written": os.path.basename(path)})
+        # this request file is only ever read from inside qso.py's hunt
+        # loop -- if the chaser isn't running, writing it is a silent
+        # no-op until/unless Automatic CQ gets started later. Report that
+        # so callers (the map's "Call this station" button in particular)
+        # can tell the operator the truth instead of implying it worked.
+        self._ok({"written": os.path.basename(path), "chaser_running": _proc_running(QSO_PY)})
 
     def _action_snr_floor_set(self, body):
         """Live-override the running chaser's SNR floor (station.conf's

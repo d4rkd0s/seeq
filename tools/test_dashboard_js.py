@@ -334,6 +334,30 @@ def run_popup_screen_pos(rect, vb, px, py, popup_w, popup_h, gap, viewport_w, vi
     return json.loads(r.stdout)
 
 
+def extract_target_pick_message_js():
+    """Slice targetPickMessage() verbatim out of dashboard.py's rendered
+    PAGE, between its declaration and the next function after it."""
+    page = _dashboard_module().PAGE
+    start = page.index("function targetPickMessage(")
+    end = page.index("\ndocument.getElementById('ccCallBtn')", start)
+    snippet = page[start:end]
+    assert "needsConfirm" in snippet, (
+        "targetPickMessage() not found between markers -- dashboard.py "
+        "layout changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_target_pick_message(ok, chaser_running, call):
+    js = extract_target_pick_message_js()
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(targetPickMessage(%s, %s, %s)));"
+    ) % ("true" if ok else "false", "true" if chaser_running else "false", json.dumps(call))
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
 class TestCallCountry(unittest.TestCase):
     def test_regression_pre_existing_prefix(self):
         result = run_call_country(["DL1ABC"])
@@ -716,6 +740,36 @@ class TestPopupScreenPos(unittest.TestCase):
     def test_clamps_top_edge(self):
         r = run_popup_screen_pos(self.RECT, self.VB, 500, 2, 200, 100, 10, 2000, 1000)
         self.assertGreaterEqual(r["top"], 4)
+
+
+class TestTargetPickMessage(unittest.TestCase):
+    """Regression: 'Call this station' (and the candidate-chip buttons)
+    write a target-request file that's only ever read from inside qso.py's
+    hunt loop -- while idle, that's a silent no-op, so the UI must never
+    claim it "requested" the call. When the chaser isn't running, the
+    caller must be told to confirm-start Automatic CQ, not given false
+    confidence that something is already in motion."""
+
+    def test_success_while_chaser_running(self):
+        r = run_target_pick_message(True, True, "W1AW")
+        self.assertIn("W1AW", r["msg"])
+        self.assertFalse(r["needsConfirm"])
+
+    def test_success_while_chaser_idle_prompts_confirm(self):
+        r = run_target_pick_message(True, False, "W1AW")
+        self.assertIn("W1AW", r["msg"])
+        self.assertTrue(r["needsConfirm"])
+        self.assertNotIn("requested", r["msg"].lower())
+
+    def test_failure_never_needs_confirm(self):
+        r = run_target_pick_message(False, False, "W1AW")
+        self.assertFalse(r["needsConfirm"])
+        self.assertIn("failed", r["msg"].lower())
+
+    def test_failure_while_running_is_still_a_failure(self):
+        r = run_target_pick_message(False, True, "W1AW")
+        self.assertFalse(r["needsConfirm"])
+        self.assertIn("failed", r["msg"].lower())
 
 
 if __name__ == "__main__":
