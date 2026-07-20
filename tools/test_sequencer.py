@@ -435,6 +435,45 @@ class TestReadSnrFloorOverride(unittest.TestCase):
                 qso.SNR_FLOOR_REQ = old
 
 
+class TestSomeoneElseCallingUs(unittest.TestCase):
+    """someone_else_calling_us(): true when a decode is addressed directly
+    to MYCALL from a station OTHER than the one we're currently pursuing --
+    a genuinely different caller hailing us mid-chase, used to shorten the
+    current target's retry budget so we can pivot to them sooner."""
+
+    def test_true_when_different_station_addresses_us(self):
+        decodes = [{"msg": "W1AW K9ZZZ -09"}]
+        self.assertTrue(qso.someone_else_calling_us(decodes, "W1AW", "K5XYZ"))
+
+    def test_false_when_it_is_the_current_target_answering(self):
+        # current_target == the caller -> that's our own target answering, not "someone else"
+        decodes = [{"msg": "W1AW K5XYZ -09"}]
+        self.assertFalse(qso.someone_else_calling_us(decodes, "W1AW", "K5XYZ"))
+
+    def test_false_when_no_decodes_address_us(self):
+        decodes = [{"msg": "CQ K9ZZZ EN61"}, {"msg": "K5XYZ K9ZZZ R-05"}]
+        self.assertFalse(qso.someone_else_calling_us(decodes, "W1AW", "K5XYZ"))
+
+    def test_false_on_empty_decodes(self):
+        self.assertFalse(qso.someone_else_calling_us([], "W1AW", "K5XYZ"))
+
+
+class TestRetryBudget(unittest.TestCase):
+    """retry_budget(): the retry/repeat ceiling for the CURRENT target,
+    halved when a different station is calling us directly -- finish up (or
+    give up) sooner instead of burning the full repeat cap on a target
+    that's leaving us hanging while someone else waits."""
+
+    def test_full_budget_when_nobody_else_calling(self):
+        self.assertEqual(qso.retry_budget(6, False), 6)
+
+    def test_halved_when_someone_else_calling(self):
+        self.assertEqual(qso.retry_budget(6, True), 3)
+
+    def test_never_drops_below_one(self):
+        self.assertEqual(qso.retry_budget(1, True), 1)
+
+
 class TestTargetIsNewCountry(unittest.TestCase):
     """target_is_new_country(): whether the just-picked target represents a
     country never logged before -- always False when DX Mode is off (the

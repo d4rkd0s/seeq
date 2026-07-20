@@ -275,6 +275,30 @@ def effective_snr_floor(base_floor, override):
         return base_floor
 
 
+def someone_else_calling_us(decodes, mycall, current_target):
+    """True when a decode is addressed directly to us ("MYCALL <call> ...")
+    from a station OTHER than the one we're currently pursuing -- a
+    genuinely different station hailing us mid-chase. The current target
+    answering us is handled separately (the "ANSWERED" path) and must not
+    count here. Used by retry_budget() to shorten the current pursuit's
+    retry budget so we can wrap up and pivot to them sooner."""
+    for d in decodes or []:
+        t = toks(d.get("msg", ""))
+        if len(t) >= 2 and t[0] == mycall and t[1] != current_target:
+            return True
+    return False
+
+
+def retry_budget(base_max_repeat, someone_else_calling):
+    """Effective retry/repeat ceiling for the CURRENT target. Halved (floor,
+    minimum 1) when a different station is calling us directly -- finish up
+    or give up on the current pursuit sooner instead of burning the full
+    repeat cap, so we can pivot to answer them. Unaffected otherwise."""
+    if not someone_else_calling:
+        return base_max_repeat
+    return max(1, base_max_repeat // 2)
+
+
 def target_is_new_country(call, dx_mode, logged):
     """Whether the just-picked target represents a country never logged
     before. Always False when dx_mode is off -- `logged` is only
@@ -692,6 +716,11 @@ def main():
                     state = "done"; break
             # listen on their next slot
             line_pos, mine, fresh = wait_slot_decodes(their_parity, line_pos)
+            # a DIFFERENT station hailing us directly, mid-chase -- shortens
+            # the current target's retry budget below (retry_budget()) so we
+            # can wrap up and pivot to them sooner rather than burning the
+            # full repeat cap on a target that hasn't answered.
+            someone_calling = someone_else_calling_us(fresh, MYCALL, call)
             # track the target: freq + slot parity from their most recent decode
             heard = None
             for dd in fresh:
@@ -750,8 +779,9 @@ def main():
                 offsets_used.append(nf0)
                 write_engine_state(offset=nf0)
                 fails += 1
-                if fails >= MAX_REPEAT:
-                    ev(f"{call}: R-report never acknowledged after {MAX_REPEAT} cycles — giving up")
+                budget = retry_budget(MAX_REPEAT, someone_calling)
+                if fails >= budget:
+                    ev(f"{call}: R-report never acknowledged after {budget} cycles — giving up")
                     state = "fail"
                 continue
             if heard is not None and target_busy(heard["msg"], call) and not target_free(heard["msg"], call):
@@ -770,7 +800,7 @@ def main():
             # plain no-copy
             if state == "call":
                 if offset_tries >= 3:
-                    if len(offsets_used) == 1:
+                    if len(offsets_used) == 1 and not someone_calling:
                         _, recent = read_decodes(max(0, line_pos - 80))
                         nf0, ngap = pick_offset(recent[-60:], our_parity, exclude_hz=offsets_used)
                         ev(f"no answer at {f0} Hz after 3 calls — new clear offset {nf0} Hz (gap {ngap} Hz)")
@@ -778,13 +808,20 @@ def main():
                         offsets_used.append(nf0)
                         offset_tries = 0
                         write_engine_state(offset=nf0)
+                    elif len(offsets_used) == 1:
+                        ev(f"no response from {call} after 3 calls — another station is calling us, moving on to them")
+                        state = "fail"
                     else:
                         ev(f"no response from {call} after 6 calls on 2 offsets — moving on")
                         state = "fail"
             else:
                 fails += 1
-                if fails >= MAX_REPEAT:
-                    ev(f"no response from {call} after {MAX_REPEAT} tries in state '{state}' — moving on")
+                budget = retry_budget(MAX_REPEAT, someone_calling)
+                if fails >= budget:
+                    if someone_calling and budget < MAX_REPEAT:
+                        ev(f"no response from {call} after {budget} tries in state '{state}' — another station is calling us, moving on to them")
+                    else:
+                        ev(f"no response from {call} after {budget} tries in state '{state}' — moving on")
                     state = "fail"
         ev(f"target {call}: {state} (completed {completed}/{args.max_qsos})")
         if state == "fail":
