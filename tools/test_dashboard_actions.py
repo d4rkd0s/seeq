@@ -67,5 +67,34 @@ class TestBuildChaseArgs(unittest.TestCase):
         self.assertEqual(err, "n out of range (1-180 minutes)")
 
 
+class TestValidateSnrFloor(unittest.TestCase):
+    """_validate_snr_floor(): pure validation for /action/snr_floor/set's
+    POST body, mirroring _validate_max_watts's (ok, value_or_errmsg) shape."""
+
+    def test_valid_value_ok(self):
+        ok, val = dashboard._validate_snr_floor(-20)
+        self.assertTrue(ok)
+        self.assertEqual(val, -20)
+
+    def test_string_number_is_coerced(self):
+        ok, val = dashboard._validate_snr_floor("-18")
+        self.assertTrue(ok)
+        self.assertEqual(val, -18)
+
+    def test_non_numeric_rejected(self):
+        ok, err = dashboard._validate_snr_floor("bogus")
+        self.assertFalse(ok)
+        self.assertIn("numeric", err)
+
+    def test_none_rejected(self):
+        ok, err = dashboard._validate_snr_floor(None)
+        self.assertFalse(ok)
+
+    def test_out_of_range_rejected(self):
+        ok, err = dashboard._validate_snr_floor(50)
+        self.assertFalse(ok)
+        self.assertIn("range", err)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

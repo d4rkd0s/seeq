@@ -25,6 +25,7 @@ ADIF    = os.path.expanduser(_C.get("ADIF", "~/.local/share/WSJT-X/wsjtx_log.adi
 QSOLOG  = os.path.join(DATA, "qso-attempts.jsonl")
 TARGET_REQ = os.path.join(DATA, "target-request.json")   # written by dashboard.py's "pick" chip
 SKIP_REQ   = os.path.join(DATA, "skip-request.json")     # written by dashboard.py's "Skip current target"
+SNR_FLOOR_REQ = os.path.join(DATA, "snr-floor-request.json")  # written by dashboard.py's SNR floor slider
 CAT     = _C.get("CAT_PORT", "/dev/ttyUSB0")
 RIGCTL  = ["rigctl", "-m", _C.get("RIG_MODEL", "3060"), "-r", CAT,
            "-s", _C.get("CAT_BAUD", "19200")]
@@ -61,7 +62,17 @@ _engine = {"utc": "", "state": "init", "target": None, "grid": None,
            # msg_tx_count: tx_count[msg] for the CURRENT message (sends so
            # far, before this cycle's attempt) -- the same counter transmit()
            # already enforces against MAX_REPEAT, just mirrored for display.
-           "msg_tx_count": None}
+           "msg_tx_count": None,
+           # snr_floor: this cycle's effective SNR floor (station.conf's
+           # SNR_FLOOR, or the dashboard slider's live override) -- display
+           # only, mirrors what effective_snr_floor() actually computed.
+           "snr_floor": None,
+           # new_country: whether the CURRENT target (set once, when locked
+           # in) is an unlogged country -- see target_is_new_country(). The
+           # dashboard's new-country flash is edge-triggered off this +
+           # tx, not off the passive candidate list, so it never re-fires
+           # spuriously on a page reload.
+           "new_country": False}
 
 def write_engine_state(**kw):
     """Publish engine state for the dashboard map. Atomic (tmp + os.replace);
@@ -238,6 +249,39 @@ def _read_skip_ts_epoch():
         return calendar.timegm(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
     except (ValueError, TypeError):
         return None
+
+
+def _read_snr_floor_override():
+    """Live SNR floor requested from the dashboard's slider, or None if
+    none/unreadable -- a malformed/missing request file just means no live
+    override this cycle, not a chaser crash (same convention as
+    _read_target_request/_read_skip_ts_epoch)."""
+    obj = _read_json(SNR_FLOOR_REQ)
+    if not isinstance(obj, dict):
+        return None
+    return obj.get("snr_floor")
+
+
+def effective_snr_floor(base_floor, override):
+    """The SNR floor to actually use this hunt-loop cycle: `override` (from
+    the dashboard slider) wins when present and numeric; otherwise falls
+    back to `base_floor` (station.conf's SNR_FLOOR, the value the process
+    started with). Never raises -- a bad override is ignored, not fatal."""
+    if override is None:
+        return base_floor
+    try:
+        return int(override)
+    except (TypeError, ValueError):
+        return base_floor
+
+
+def target_is_new_country(call, dx_mode, logged):
+    """Whether the just-picked target represents a country never logged
+    before. Always False when dx_mode is off -- `logged` is only
+    meaningfully populated when DX Mode is on (see the hunt loop's `logged =
+    ... if dx_mode else set()`), so an empty set here must never be read as
+    "everything is new"."""
+    return bool(dx_mode) and dxcc.is_new_country(call, logged)
 
 
 def worked_calls():
@@ -438,7 +482,6 @@ def log_qso(call, grid, sent, rcvd, f0, t_on):
     open(QSOLOG, "a").write(json.dumps({"call": call, "grid": grid, "sent": sent,
         "rcvd": rcvd, "utc": tm, "date": d, "freq_hz": DIAL + f0}) + "\n")
     ev(f"LOGGED QSO: {call} {grid} sent {sent} rcvd {rcvd} -> wsjtx_log.adi")
-    write_engine_state(state="logged")
 
 def write_session_report(t_start, t_end, args, completed, session_qsos, session_attempts):
     """End-of-run summary for one chase session -> data/session-report.txt
@@ -557,6 +600,8 @@ def main():
             ev(f"stopping: {len(tried)} targets tried, {completed} completed")
             break
         worked = worked_calls()
+        snr_floor = effective_snr_floor(SNR_FLOOR, _read_snr_floor_override())
+        write_engine_state(snr_floor=snr_floor)
         # ---- hunt: watch fresh decodes for a CQ we can chase ----
         line_pos, decs = read_decodes(line_pos)
         cqs = []
@@ -577,8 +622,8 @@ def main():
                 else:
                     ev(f"skip {c_call} — DX Mode: same country (not DX)")
                 continue
-            if d["snr"] < SNR_FLOOR:
-                ev(f"skip {c_call} at {d['snr']} dB — below SNR floor {SNR_FLOOR} (reciprocity)")
+            if d["snr"] < snr_floor:
+                ev(f"skip {c_call} at {d['snr']} dB — below SNR floor {snr_floor} (reciprocity)")
                 continue
             cqs.append((d, c_call, c_grid))
         if not cqs:
@@ -602,7 +647,8 @@ def main():
         _, recent = read_decodes(max(0, line_pos - 80))
         f0, gap = pick_offset(recent[-60:], our_parity)
         ev(f"TARGET {call} {grid} (CQ {d['snr']} dB @ {d['freq']} Hz, their parity {'even' if their_parity==0 else 'odd'}) -> our offset {f0} Hz (gap {gap} Hz)")
-        write_engine_state(state="calling", target=call, grid=grid, offset=f0)
+        write_engine_state(state="calling", target=call, grid=grid, offset=f0,
+                            new_country=target_is_new_country(call, dx_mode, logged))
         tried.add(call)
         target_start_ts = now()
         tx_count = __import__("collections").defaultdict(int)
@@ -743,6 +789,12 @@ def main():
         ev(f"target {call}: {state} (completed {completed}/{args.max_qsos})")
         if state == "fail":
             write_engine_state(state="hunting", target=None, grid=None)
+        elif state == "done":
+            # only now -- after the courtesy 73 has actually been sent and
+            # unkeyed -- is the outer cockpit state allowed to read
+            # "logged". log_qso() itself (called mid-exchange, before the
+            # 73) deliberately does NOT touch this.
+            write_engine_state(state="logged")
         attempt_rec = {"utc": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
             "call": call, "grid": grid, "their_cq_snr": d["snr"],
             "our_offset_hz": answered_f0 if answered_f0 is not None else f0,

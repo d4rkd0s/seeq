@@ -29,6 +29,7 @@ ACTIONS_LOG = os.path.join(DATA, "actions.log")
 LAYOUT_JSON = os.path.join(DATA, "ui-layout.json")
 TARGET_REQ = os.path.join(DATA, "target-request.json")
 SKIP_REQ = os.path.join(DATA, "skip-request.json")
+SNR_FLOOR_REQ = os.path.join(DATA, "snr-floor-request.json")
 ANTENNAS_JSON = os.path.join(DATA, "antennas.json")
 EVENT_LINES = 20
 MAX_POST_BODY = 65536
@@ -69,7 +70,8 @@ CONFIG = {"mycall": MYCALL, "mygrid": MYGRID, "band": _C.get("BAND", ""),
           "dial_hz": int(_C.get("DIAL_HZ", "0") or 0),
           "tx_pwr": _C.get("TX_PWR", ""), "mode": "FT8",
           "antenna": _C.get("ANTENNA", ""),
-          "max_repeat": int(_C.get("MAX_REPEAT", 6))}
+          "max_repeat": int(_C.get("MAX_REPEAT", 6)),
+          "snr_floor_default": int(_C.get("SNR_FLOOR", -16))}
 
 PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYCALL__</title>
 <style>
@@ -246,7 +248,7 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYC
     10000}; this leaves both efforts room to reconcile later without a
     collision. JS toggles the .flash/.show classes (added, then removed via
     setTimeout) rather than an infinite animation -- see
-    pickNewCountryFlash()/triggerNewCountryFlash() near tick(). ---- */
+    shouldFlashNewCountry()/triggerNewCountryFlash() near engTick(). ---- */
  #newCountryGlow{position:fixed;inset:0;pointer-events:none;z-index:10500;opacity:0}
  #newCountryGlow.flash{opacity:1;animation:newCountryPulse 1.4s ease-in-out 2}
  @keyframes newCountryPulse{0%,100%{box-shadow:inset 0 0 8vw 1.5vw rgba(227,179,65,.55)}
@@ -326,7 +328,7 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYC
  .widget[data-key=decodes]{width:540px;height:320px}
  .widget[data-key=ops]{width:300px;height:320px}
  .widget[data-key=events]{width:880px;height:170px}
- .widget[data-key=actions]{width:300px;height:320px}
+ .widget[data-key=actions]{width:300px;height:400px}
  .widget[data-key=stationcfg]{width:340px;height:420px}
  .widget[data-key=qrz]{width:340px;height:340px}
  .widget[data-key=logbook]{width:560px;height:340px}
@@ -337,6 +339,8 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYC
 
  .actionbtn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:5px;
   padding:5px 10px;font-size:12px;cursor:pointer}
+ #snrRiskBar{height:5px;border-radius:3px;background:#21262d;margin:4px 0;overflow:hidden}
+ #snrRiskFill{height:100%;width:0%;background:#3fb950;transition:width .15s,background .15s}
  .actionbtn:hover{border-color:#58a6ff} .actionbtn:disabled{opacity:.5;cursor:default}
  .actionbtn.warn{background:#3d1f16;border-color:#f0883e;color:#f0883e}
  .arow{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}
@@ -427,6 +431,14 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYC
     <button id=btnChaseStart class="actionbtn warn tx-capable">Automatic CQ</button>
     <button id=btnChaseStop class=actionbtn>Stop</button>
    </div>
+   <div class=arow style="margin-top:8px">
+    <span class=dim style="min-width:64px">SNR floor</span>
+    <input id=snrFloorSlider type=range min=-30 max=10 step=1 value=-16 style="flex:1 1 auto">
+    <span id=snrFloorVal class=dim style="min-width:52px;text-align:right">-16 dB</span>
+    <button id=snrFloorReset class=actionbtn title="reset to station.conf default">Reset</button>
+   </div>
+   <div id=snrRiskBar><div id=snrRiskFill></div></div>
+   <div id=snrRiskLabel class=dim style="margin-bottom:6px"></div>
    <div id=chaseConfirmMsg class=dim style="display:none">You are the control operator — stay at the
     station and watch NEXT TX (top center) count down once a CQ is found; FT8 keys up on 15 s cycles.
     <div class=arow><button id=btnChaseConfirm class="actionbtn warn tx-capable">Confirm start Automatic CQ</button>
@@ -555,8 +567,10 @@ chmod 600 ~/.config/cota/qrz.key</pre>
      expect to wait your turn — the pileup penalty and SNR floor still apply.</li>
     <li><b>Patience beats repetition.</b> A clean, well-timed call beats
      machine-gunning the same frame.</li>
-    <li>The SNR floor, busy-hold, repeat cap, and unkey watchdog are
-     <b>not</b> affected by this toggle.</li>
+    <li>The SNR floor (live-adjustable via the Actions widget's slider —
+     lower = more candidates but higher risk they won't hear our reply back),
+     busy-hold, repeat cap, and unkey watchdog are <b>not</b> affected by this
+     toggle.</li>
    </ul>
    See the ZL2IFB FT8 Operating Guide (README's On-air etiquette section).
   </div>
@@ -760,6 +774,7 @@ let mapPoints={rx:[], tx:null, qso:[]};
    the line never drew for that whole chase. Populated from the same recent-
    decode scan renderRX() already does, keyed by call. ---- */
 let recentGridByCall={};
+let snrFloorInitialized=false;
 function grid2ll(g){                       // Maidenhead 4/6-char -> [lat,lon] (cell center)
  g=(g||'').trim().toUpperCase();
  if(!/^[A-R]{2}[0-9]{2}([A-X]{2})?$/.test(g)) return null;
@@ -965,6 +980,29 @@ function setMapMode(m){
  scheduleSaveLayout();
 }
 
+/* ---- SNR floor risk meter: a lower (more negative) floor lets weaker CQs
+   through, but weaker signals are less likely to hear our own QRP signal
+   back (reciprocity) -- risk of no response rises as the floor drops.
+   Linear over the practical FT8 decode range (-24..0 dB), clamped. ---- */
+function snrRiskLevel(floorDb){
+ const clamped=Math.max(-24,Math.min(0,floorDb));
+ const pct=Math.round((-clamped/24)*100);
+ let level,label;
+ if(pct>=75){level='high';label='High risk of no response';}
+ else if(pct>=45){level='moderate';label='Moderate risk of no response';}
+ else if(pct>=20){level='low';label='Low risk of no response';}
+ else{level='minimal';label='Minimal risk — strong signals only';}
+ return {pct,level,label};
+}
+const SNR_RISK_COLORS={high:'#f85149',moderate:'#f0883e',low:'#56d4dd',minimal:'#3fb950'};
+function updateSnrRiskUI(floorDb){
+ const r=snrRiskLevel(floorDb);
+ document.getElementById('snrFloorVal').textContent=floorDb+' dB';
+ const fill=document.getElementById('snrRiskFill');
+ fill.style.width=r.pct+'%'; fill.style.background=SNR_RISK_COLORS[r.level];
+ document.getElementById('snrRiskLabel').textContent=r.label;
+}
+
 async function loadCfg(){
  try{
   const r=await fetch('/config'); if(!r.ok) return; CFG=await r.json();
@@ -979,6 +1017,11 @@ async function loadCfg(){
                ['DIAL',mhz],['POWER',(CFG.tx_pwr||'—')+' W'],['MODE',CFG.mode]];
   document.getElementById('info').innerHTML=items.map(i=>
    `<span class=it><span class=k>${i[0]}</span><span class=v>${esc(String(i[1]))}</span></span>`).join('');
+  if(!snrFloorInitialized && CFG.snr_floor_default!=null){
+   document.getElementById('snrFloorSlider').value=CFG.snr_floor_default;
+   updateSnrRiskUI(CFG.snr_floor_default);
+   snrFloorInitialized=true;
+  }
  }catch(e){}
 }
 
@@ -1338,6 +1381,15 @@ let lastEngine=null, lastTxFlag=false, sawTxContent=false;
 function secsToNextSlot(nowEpochSec){
  return 15 - (nowEpochSec % 15);
 }
+/* ---- rough-branch label: above 5s remaining, a dim estimate; that ends at
+   5s (nothing meaningful to claim yet about an imminent TX); from 3s down,
+   an urgent countdown in the same tx-soon styling as a real scheduled
+   key-up. Pure, extracted for Node-harness testing. ---- */
+function roughTxLabel(secs){
+ if(secs>5) return {text:'~'+secs.toFixed(1)+'s to next slot', cls:'tx-rough'};
+ if(secs<=3) return {text:'Transmitting in '+secs.toFixed(2)+'s', cls:'tx-soon'};
+ return {text:'—', cls:''};
+}
 function updateNextTx(e, tx, st){
  const el=document.getElementById('cpNextTx');
  el.className='cpv';
@@ -1352,12 +1404,13 @@ function updateNextTx(e, tx, st){
    el.classList.add('tx-soon');
   }else el.textContent='—';
  }else if(chaserRunning){
-  // rough estimate only -- no target locked in yet, just the next FT8 slot
-  // boundary; distinct styling (dim, not tx-soon's orange) so it never
-  // reads as an actually-scheduled key-up.
+  // no target locked in yet, just the next FT8 slot boundary -- rough
+  // estimate while there's time to spare, urgent countdown once close
+  // (see roughTxLabel).
   const secs=secsToNextSlot(Date.now()/1000);
-  el.textContent='~'+secs.toFixed(1)+'s to next slot';
-  el.classList.add('tx-rough');
+  const r=roughTxLabel(secs);
+  el.textContent=r.text;
+  if(r.cls) el.classList.add(r.cls);
  }else el.textContent='—';
 }
 function nextTxFastTick(){ if(lastEngine) updateNextTx(lastEngine, !!lastEngine.tx, lastEngine.state||''); }
@@ -1427,6 +1480,12 @@ async function engTick(){
  const tx=!!(e&&e.tx);
  cp.classList.toggle('tx-live',tx);
  document.getElementById('btnUnkey').classList.toggle('live',tx);
+ // new country flash: gated on body.dx-armed, same source of truth the
+ // blue glow layer uses; shouldFlashNewCountry does the actual edge-trigger.
+ if(document.body.classList.contains('dx-armed') && shouldFlashNewCountry(e,chaserRunning,tx,lastNewCountryTx)){
+  triggerNewCountryFlash(e.target, callCountry(e.target));
+ }
+ lastNewCountryTx=tx;
  updateNextTx(e,tx,st);
  updateTxPanel(e,tx,st);
  // CALLING cockpit item: where the current target actually is -- US state
@@ -1463,33 +1522,30 @@ async function engTick(){
  lastEngineState=stl||lastEngineState;
 }
 
-/* ---- New country flash (DX Mode only): pure decision fn factored out for
-   Node-harness testing (tools/test_dashboard_js.py), mirroring the existing
-   CALL_PREFIXES/callCountry() extraction pattern. candidates is s.candidates
-   (already includes next_call as element 0 -- see parse_decodes.py's
-   ranked/candidates, they share the same tagged dicts) tagged server-side
-   with country/new_country by dxcc.logged_countries()/is_new_country().
-   flashedCalls is a plain array of calls already flashed this page-load.
-   Returns the first still-un-flashed new-country candidate, or null. ---- */
-function pickNewCountryFlash(candidates, flashedCalls){
- for(const c of (candidates||[])){
-  if(c && c.new_country && c.call && !flashedCalls.includes(c.call)) return c;
- }
- return null;
+/* ---- New country flash (DX Mode only): edge-triggered off an ACTUAL
+   transmission toward a new-country target, sourced from engine.json (the
+   live target), never from the passive candidate list -- that version
+   re-flashed whatever was last shown immediately on every page reload,
+   since its dedup list was in-memory only. Fires once per real TX start
+   ("each call to it"); stops the moment the target leaves calling/qso
+   (failed, or logged -- "QSO'd fully" is no longer new). Pure decision fn,
+   factored out for Node-harness testing (tools/test_dashboard_js.py). ---- */
+function shouldFlashNewCountry(e, chaserRunning, tx, lastTx){
+ return !!(chaserRunning && e && e.new_country && e.target &&
+           (e.state==='calling'||e.state==='qso') && tx && !lastTx);
 }
-let flashedNewCountryCalls=[], newCountryGlowTimer=null, newCountryBannerTimer=null;
-function triggerNewCountryFlash(c){
- flashedNewCountryCalls.push(c.call);
+let lastNewCountryTx=false, newCountryGlowTimer=null, newCountryBannerTimer=null;
+function triggerNewCountryFlash(call, country){
  const glow=document.getElementById('newCountryGlow');
  glow.classList.remove('flash'); void glow.offsetWidth;
  glow.classList.add('flash');
  clearTimeout(newCountryGlowTimer);
  newCountryGlowTimer=setTimeout(()=>glow.classList.remove('flash'), 3000);
- document.getElementById('newCountryBannerBody').textContent=`${c.call} — ${c.country}`;
+ document.getElementById('newCountryBannerBody').textContent=`${call} — ${country}`;
  document.getElementById('newCountryBanner').classList.add('show');
  clearTimeout(newCountryBannerTimer);
  newCountryBannerTimer=setTimeout(()=>document.getElementById('newCountryBanner').classList.remove('show'), 5000);
- fireAlert('New country', `${c.call} — ${c.country}`);
+ fireAlert('New country', `${call} — ${country}`);
 }
 async function tick(){
  try{
@@ -1520,13 +1576,6 @@ async function tick(){
   document.getElementById('cand').innerHTML=s.candidates&&s.candidates.length>1
    ?'also: '+s.candidates.slice(1).map(c=>`<button class=callchip data-call="${esc(c.call)}">${esc(c.call)} ${c.snr}dB</button>`).join(' ')
    :'';
-  /* ---- new country flash: gated on body.dx-armed, same source of truth
-     the blue glow layer uses -- edge-triggered via pickNewCountryFlash's
-     dedup, not level-triggered on every poll. ---- */
-  if(document.body.classList.contains('dx-armed')){
-   const hit=pickNewCountryFlash(s.candidates, flashedNewCountryCalls);
-   if(hit) triggerNewCountryFlash(hit);
-  }
   document.getElementById('me').innerHTML=s.calling_me&&s.calling_me.length?s.calling_me.map(d=>`<span class=me>${d.msg} (${d.snr} dB)</span>`).join('<br>'):'nobody yet';
   /* ---- alerts (4.3): new QSO logged (qso_count increased). Also nudges
      the Logbook widget (now the sole QSO table -- see the removed "QSO
@@ -1646,6 +1695,26 @@ function wireActions(){
   const r=await postAction('/action/chase/stop',{});
   setActionsMsg(r.ok?'Automatic CQ stop requested':'Automatic CQ stop failed: '+(r.body.error||r.error||r.status));
   refreshActionsState();
+ });
+ // SNR floor slider: live risk-meter update on every drag (input, no
+ // network call), commits to the running chaser only on release (change) --
+ // effective_snr_floor() in qso.py re-reads this file every hunt-loop cycle,
+ // no restart needed. Applies to Automatic CQ generally, not just DX Mode:
+ // reciprocity risk is sharpest on DX but the same filter runs always.
+ document.getElementById('snrFloorSlider').addEventListener('input',(e)=>{
+  updateSnrRiskUI(parseInt(e.target.value,10));
+ });
+ document.getElementById('snrFloorSlider').addEventListener('change',async(e)=>{
+  const v=parseInt(e.target.value,10);
+  const r=await postAction('/action/snr_floor/set',{snr_floor:v});
+  setActionsMsg(r.ok?`SNR floor set to ${v} dB`:'SNR floor update failed: '+(r.body.error||r.error||r.status));
+ });
+ document.getElementById('snrFloorReset').addEventListener('click',async()=>{
+  const def=(CFG&&CFG.snr_floor_default!=null)?CFG.snr_floor_default:-16;
+  document.getElementById('snrFloorSlider').value=def;
+  updateSnrRiskUI(def);
+  const r=await postAction('/action/snr_floor/set',{reset:true});
+  setActionsMsg(r.ok?`SNR floor reset to station default (${def} dB)`:'SNR floor reset failed: '+(r.body.error||r.error||r.status));
  });
  document.getElementById('btnUnkey').addEventListener('click',async()=>{
   const btn=document.getElementById('btnUnkey'); btn.disabled=true;
@@ -2077,6 +2146,19 @@ def _validate_max_watts(mw):
         return False, f"max_watts out of range (0-{ABS_MAX_W})"
     return True, mw
 
+def _validate_snr_floor(v):
+    """Returns (ok, value_or_errmsg) for /action/snr_floor/set's POST body.
+    Range matches FT8/JT9's practical decode floor (~-24 dB) with headroom
+    on both sides for future rigs/antennas -- not a TX-safety bound, just a
+    sanity check against a fat-fingered value."""
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        return False, "snr_floor must be numeric"
+    if not (-30 <= v <= 10):
+        return False, "snr_floor out of range (-30 to 10 dB)"
+    return True, v
+
 def _build_chase_args(body):
     """Pure validation for /action/chase/start's POST body. Returns
     (args_list, desc_str, None) on success, or (None, None, error_msg) on
@@ -2204,6 +2286,8 @@ class H(http.server.SimpleHTTPRequestHandler):
                 self._action_target_write(body, TARGET_REQ, "pick", need_call=True)
             elif path == "/action/target/skip":
                 self._action_target_write(body, SKIP_REQ, "skip", need_call=False)
+            elif path == "/action/snr_floor/set":
+                self._action_snr_floor_set(body)
             elif path == "/action/antenna/add":
                 self._action_antenna_add(body)
             elif path == "/action/antenna/update":
@@ -2318,6 +2402,27 @@ class H(http.server.SimpleHTTPRequestHandler):
         atomic_write_json(path, obj)
         log_action(f"target/{kind}: {obj}")
         self._ok({"written": os.path.basename(path)})
+
+    def _action_snr_floor_set(self, body):
+        """Live-override the running chaser's SNR floor (station.conf's
+        SNR_FLOOR otherwise). Same file-drop IPC as target/pick and
+        target/skip: qso.py's hunt loop re-reads SNR_FLOOR_REQ every cycle
+        (see effective_snr_floor()), no restart needed. 'reset' clears the
+        override back to station.conf's value."""
+        if body.get("reset"):
+            try:
+                os.remove(SNR_FLOOR_REQ)
+            except FileNotFoundError:
+                pass
+            log_action("snr_floor/set: reset to station.conf default")
+            return self._ok({"reset": True})
+        ok, val = _validate_snr_floor(body.get("snr_floor"))
+        if not ok:
+            return self._err(400, val)
+        atomic_write_json(SNR_FLOOR_REQ, {"snr_floor": val,
+                                           "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+        log_action(f"snr_floor/set: {val} dB")
+        self._ok({"snr_floor": val})
 
     def _action_antenna_add(self, body):
         name = str(body.get("name", "")).strip()

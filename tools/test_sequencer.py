@@ -5,7 +5,7 @@ Covers: pick_offset parity filtering / ceiling / exclusion / higher-freq
 preference, directed-CQ parsing + filter policy, busy-detection, and
 stalled-CQ detection. Run: python3 tools/test_sequencer.py
 """
-import os, sys, tempfile, unittest
+import os, sys, tempfile, time, unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin"))
 import qso
@@ -393,6 +393,91 @@ class TestAllTimeWorkedCalls(unittest.TestCase):
             self.assertEqual(qso.all_time_worked_calls(), set())
         finally:
             qso.ADIF = old_adif
+
+
+class TestEffectiveSnrFloor(unittest.TestCase):
+    """effective_snr_floor(): the dashboard's SNR-floor slider writes a live
+    override file (SNR_FLOOR_REQ); this resolves it against station.conf's
+    SNR_FLOOR without ever raising on a missing/bad override."""
+
+    def test_no_override_uses_base_floor(self):
+        self.assertEqual(qso.effective_snr_floor(-16, None), -16)
+
+    def test_override_wins_when_present(self):
+        self.assertEqual(qso.effective_snr_floor(-16, -20), -20)
+
+    def test_string_override_from_json_is_coerced(self):
+        self.assertEqual(qso.effective_snr_floor(-16, "-22"), -22)
+
+    def test_garbage_override_falls_back_to_base(self):
+        self.assertEqual(qso.effective_snr_floor(-16, "not a number"), -16)
+
+
+class TestReadSnrFloorOverride(unittest.TestCase):
+    def test_missing_file_returns_none(self):
+        old = qso.SNR_FLOOR_REQ
+        qso.SNR_FLOOR_REQ = "/nonexistent/path/snr-floor-request.json"
+        try:
+            self.assertIsNone(qso._read_snr_floor_override())
+        finally:
+            qso.SNR_FLOOR_REQ = old
+
+    def test_reads_written_value(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "snr-floor-request.json")
+            with open(path, "w") as f:
+                f.write('{"snr_floor": -20}')
+            old = qso.SNR_FLOOR_REQ
+            qso.SNR_FLOOR_REQ = path
+            try:
+                self.assertEqual(qso._read_snr_floor_override(), -20)
+            finally:
+                qso.SNR_FLOOR_REQ = old
+
+
+class TestTargetIsNewCountry(unittest.TestCase):
+    """target_is_new_country(): whether the just-picked target represents a
+    country never logged before -- always False when DX Mode is off (the
+    `logged` set is only meaningfully populated when dx_mode is True in the
+    hunt loop; an empty `logged` set must never be read as "everything is
+    new")."""
+
+    def test_false_when_dx_mode_off(self):
+        self.assertFalse(qso.target_is_new_country("DL1ABC", False, set()))
+
+    def test_true_when_dx_mode_on_and_country_not_logged(self):
+        self.assertTrue(qso.target_is_new_country("DL1ABC", True, set()))
+
+    def test_false_when_dx_mode_on_but_country_already_logged(self):
+        self.assertFalse(qso.target_is_new_country("DL1ABC", True, {"Germany"}))
+
+    def test_false_when_call_unmapped_even_with_dx_mode_on(self):
+        self.assertFalse(qso.target_is_new_country("QQ9ZZZ", True, set()))
+
+
+class TestLogQsoDoesNotFlipOuterState(unittest.TestCase):
+    """log_qso() writes the ADIF/QSOLOG entry mid-exchange, BEFORE the
+    courtesy 73 has actually been transmitted (in main()'s state machine,
+    log_qso() fires, then the inner state becomes "b73" and the 73 gets
+    sent). It must never touch engine.json's outer 'state' field itself --
+    doing so made the cockpit read "LOGGED" while NEXT TX/PTT still showed
+    an active transmission for the courtesy 73, a contradictory display.
+    Only the outer hunt loop, once the target's while loop has genuinely
+    finished, may set state="logged"."""
+
+    def test_does_not_touch_engine_state(self):
+        with tempfile.TemporaryDirectory() as d:
+            old_adif, old_qsolog, old_engine = qso.ADIF, qso.QSOLOG, qso.ENGINE_JSON
+            qso.ADIF = os.path.join(d, "log.adi")
+            qso.QSOLOG = os.path.join(d, "attempts.jsonl")
+            qso.ENGINE_JSON = os.path.join(d, "engine.json")
+            qso._engine["state"] = "qso"
+            try:
+                qso.log_qso("W1AW", "FN31", "+05", "-09", 1500, time.time())
+                self.assertEqual(qso._engine["state"], "qso")
+            finally:
+                qso.ADIF, qso.QSOLOG, qso.ENGINE_JSON = old_adif, old_qsolog, old_engine
+                qso._engine["state"] = "init"
 
 
 if __name__ == "__main__":

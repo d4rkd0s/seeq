@@ -113,27 +113,26 @@ def run_secs_to_next_slot(now_epoch_sec):
     return json.loads(r.stdout)
 
 
-def extract_pick_new_country_flash_js():
-    """Slice the pickNewCountryFlash() edge-trigger/dedup function verbatim
-    out of dashboard.py's rendered PAGE, between two stable markers: its
-    declaration and the tick() function it feeds."""
+def extract_should_flash_new_country_js():
+    """Slice shouldFlashNewCountry() verbatim out of dashboard.py's rendered
+    PAGE, between its declaration and triggerNewCountryFlash() right after."""
     page = _dashboard_module().PAGE
-    start = page.index("function pickNewCountryFlash(")
-    end = page.index("\nasync function tick(){", start)
+    start = page.index("function shouldFlashNewCountry(")
+    end = page.index("\nfunction triggerNewCountryFlash(", start)
     snippet = page[start:end]
     assert "new_country" in snippet, (
-        "pickNewCountryFlash() not found between markers -- dashboard.py "
+        "shouldFlashNewCountry() not found between markers -- dashboard.py "
         "layout changed, update the markers in tools/test_dashboard_js.py")
     return snippet
 
 
-def run_pick_new_country_flash(candidates, flashed_calls):
-    """Evaluate the real pickNewCountryFlash() JS (via Node). Returns the
-    picked candidate dict, or None."""
-    js = extract_pick_new_country_flash_js()
+def run_should_flash_new_country(e, chaser_running, tx, last_tx):
+    js = extract_should_flash_new_country_js()
+    e_json = "null" if e is None else json.dumps(e)
     script = js + (
-        "\nprocess.stdout.write(JSON.stringify(pickNewCountryFlash(%s, %s)));"
-    ) % (json.dumps(candidates), json.dumps(flashed_calls))
+        "\nprocess.stdout.write(JSON.stringify(shouldFlashNewCountry(%s, %s, %s, %s)));"
+    ) % (e_json, "true" if chaser_running else "false",
+         "true" if tx else "false", "true" if last_tx else "false")
     r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
     if r.returncode != 0:
         raise RuntimeError("node failed: %s" % r.stderr)
@@ -182,6 +181,51 @@ def run_resolve_target_grid(target, engine_grid, recent_grid_by_call):
     script = js + (
         "\nprocess.stdout.write(JSON.stringify(resolveTargetGrid(%s, %s, %s)));"
     ) % (json.dumps(target), json.dumps(engine_grid), json.dumps(recent_grid_by_call))
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
+def extract_snr_risk_level_js():
+    """Slice snrRiskLevel() verbatim out of dashboard.py's rendered PAGE,
+    between its declaration and the loadCfg() function that wires it into
+    the SNR floor slider's initial display."""
+    page = _dashboard_module().PAGE
+    start = page.index("function snrRiskLevel(")
+    end = page.index("\nasync function loadCfg(", start)
+    snippet = page[start:end]
+    assert "pct" in snippet, (
+        "snrRiskLevel() not found between markers -- dashboard.py layout "
+        "changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_snr_risk_level(floor_db):
+    js = extract_snr_risk_level_js()
+    script = js + "\nprocess.stdout.write(JSON.stringify(snrRiskLevel(%r)));" % floor_db
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
+def extract_rough_tx_label_js():
+    """Slice roughTxLabel() verbatim out of dashboard.py's rendered PAGE,
+    between its declaration and updateNextTx() which consumes it."""
+    page = _dashboard_module().PAGE
+    start = page.index("function roughTxLabel(")
+    end = page.index("\nfunction updateNextTx(", start)
+    snippet = page[start:end]
+    assert "tx-soon" in snippet, (
+        "roughTxLabel() not found between markers -- dashboard.py layout "
+        "changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_rough_tx_label(secs):
+    js = extract_rough_tx_label_js()
+    script = js + "\nprocess.stdout.write(JSON.stringify(roughTxLabel(%r)));" % secs
     r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
     if r.returncode != 0:
         raise RuntimeError("node failed: %s" % r.stderr)
@@ -247,31 +291,50 @@ class TestQrzJobDue(unittest.TestCase):
         self.assertTrue(run_qrz_job_due(180000, self.PERIOD, self.STAGGER, self.STAGGER))
 
 
-class TestPickNewCountryFlash(unittest.TestCase):
-    DL = {"call": "DL2XYZ", "grid": "JN58", "snr": -10, "freq": 1200, "slot": "143000",
-          "country": "Germany", "new_country": True}
-    W = {"call": "W1ABC", "grid": "FN31", "snr": -5, "freq": 900, "slot": "143000",
-         "country": "United States", "new_country": False}
+class TestShouldFlashNewCountry(unittest.TestCase):
+    """The new-country flash must be edge-triggered off an ACTUAL
+    transmission toward a new-country target -- never off the passive
+    candidate list (that made a page reload immediately re-flash whatever
+    was last shown, since the in-memory dedup list reset to empty). Fires
+    once per real TX start ("each call to it"), stops the moment the
+    target is no longer being actively pursued (state leaves calling/qso --
+    e.g. once logged, "QSO'd fully")."""
 
-    def test_picks_first_new_country_candidate(self):
-        result = run_pick_new_country_flash([self.W, self.DL], [])
-        self.assertEqual(result["call"], "DL2XYZ")
+    CALLING = {"state": "calling", "target": "DL2XYZ", "new_country": True}
+    QSO = {"state": "qso", "target": "DL2XYZ", "new_country": True}
+    LOGGED = {"state": "logged", "target": "DL2XYZ", "new_country": True}
+    NOT_NEW = {"state": "calling", "target": "W1ABC", "new_country": False}
 
-    def test_returns_none_when_no_new_country_candidates(self):
-        self.assertIsNone(run_pick_new_country_flash([self.W], []))
+    def test_fires_on_tx_rising_edge_while_calling_new_country(self):
+        self.assertTrue(run_should_flash_new_country(self.CALLING, True, True, False))
 
-    def test_skips_already_flashed_call(self):
-        self.assertIsNone(run_pick_new_country_flash([self.DL], ["DL2XYZ"]))
+    def test_fires_on_tx_rising_edge_during_qso_exchange(self):
+        # "each call to it" -- rrpt/b73 steps happen in state 'qso', not just 'calling'
+        self.assertTrue(run_should_flash_new_country(self.QSO, True, True, False))
 
-    def test_finds_new_country_candidate_beyond_first(self):
-        # a rare country buried at candidate #3 by SNR is still worth flashing
-        other = {"call": "K5AAA", "grid": "EM10", "snr": -3, "freq": 800,
-                  "slot": "143000", "country": "United States", "new_country": False}
-        result = run_pick_new_country_flash([self.W, other, self.DL], [])
-        self.assertEqual(result["call"], "DL2XYZ")
+    def test_does_not_refire_mid_transmission(self):
+        # tx already true last tick -- not a fresh call, don't re-flash continuously
+        self.assertFalse(run_should_flash_new_country(self.CALLING, True, True, True))
 
-    def test_empty_candidates_returns_none(self):
-        self.assertIsNone(run_pick_new_country_flash([], []))
+    def test_false_when_not_transmitting(self):
+        self.assertFalse(run_should_flash_new_country(self.CALLING, True, False, False))
+
+    def test_false_once_qsod_fully_logged(self):
+        self.assertFalse(run_should_flash_new_country(self.LOGGED, True, True, False))
+
+    def test_false_when_target_country_not_new(self):
+        self.assertFalse(run_should_flash_new_country(self.NOT_NEW, True, True, False))
+
+    def test_false_when_chaser_not_actually_running(self):
+        # stale engine.json snapshot -- same staleness guard as txLineActive
+        self.assertFalse(run_should_flash_new_country(self.CALLING, False, True, False))
+
+    def test_false_when_hunting_no_target_locked(self):
+        self.assertFalse(run_should_flash_new_country(
+            {"state": "hunting", "target": None, "new_country": False}, True, True, False))
+
+    def test_false_when_engine_null(self):
+        self.assertFalse(run_should_flash_new_country(None, True, True, False))
 
 
 class TestSecsToNextSlot(unittest.TestCase):
@@ -333,6 +396,77 @@ class TestResolveTargetGrid(unittest.TestCase):
 
     def test_ignores_garbage_in_recent_cache(self):
         self.assertEqual(run_resolve_target_grid("OH3JF", "", {"OH3JF": "RR73"}), "")
+
+
+class TestSnrRiskLevel(unittest.TestCase):
+    """A lower (more negative) SNR floor lets weaker candidates through --
+    weaker candidates are less likely to hear our own QRP signal back
+    (reciprocity), so risk of no response rises as the floor drops. Pure
+    function driving the dashboard's SNR-floor slider risk meter."""
+
+    def test_station_default_is_moderate(self):
+        r = run_snr_risk_level(-16)
+        self.assertEqual(r["level"], "moderate")
+
+    def test_deep_floor_is_high_risk(self):
+        r = run_snr_risk_level(-24)
+        self.assertEqual(r["level"], "high")
+        self.assertEqual(r["pct"], 100)
+
+    def test_strong_signals_only_is_minimal_risk(self):
+        r = run_snr_risk_level(0)
+        self.assertEqual(r["level"], "minimal")
+        self.assertEqual(r["pct"], 0)
+
+    def test_risk_increases_as_floor_drops(self):
+        weak = run_snr_risk_level(-22)
+        strong = run_snr_risk_level(-4)
+        self.assertGreater(weak["pct"], strong["pct"])
+
+    def test_clamps_beyond_practical_range(self):
+        below = run_snr_risk_level(-40)
+        above = run_snr_risk_level(15)
+        self.assertEqual(below["pct"], 100)
+        self.assertEqual(above["pct"], 0)
+
+
+class TestRoughTxLabel(unittest.TestCase):
+    """The rough 'time to next slot' cockpit label: shown while Automatic CQ
+    is running but no target/next_tx_epoch is locked in yet. Above 5s
+    remaining it's a dim '~Ns to next slot' estimate; that stops ("ends")
+    once 5s remain; from 3s remaining down it becomes an urgent
+    'Transmitting in Ns' countdown (same tx-soon styling as a real
+    scheduled key-up) -- the 2s in between (5s..3s) is intentionally blank,
+    since nothing meaningful can be claimed about an imminent TX in that gap."""
+
+    def test_above_five_seconds_shows_rough_estimate(self):
+        r = run_rough_tx_label(10.0)
+        self.assertEqual(r["text"], "~10.0s to next slot")
+        self.assertEqual(r["cls"], "tx-rough")
+
+    def test_just_above_five_still_rough(self):
+        r = run_rough_tx_label(5.1)
+        self.assertEqual(r["cls"], "tx-rough")
+
+    def test_at_five_seconds_rough_estimate_ends(self):
+        r = run_rough_tx_label(5.0)
+        self.assertEqual(r["text"], "—")
+        self.assertEqual(r["cls"], "")
+
+    def test_between_five_and_three_is_blank(self):
+        r = run_rough_tx_label(4.0)
+        self.assertEqual(r["text"], "—")
+        self.assertEqual(r["cls"], "")
+
+    def test_at_three_seconds_urgent_countdown_begins(self):
+        r = run_rough_tx_label(3.0)
+        self.assertEqual(r["text"], "Transmitting in 3.00s")
+        self.assertEqual(r["cls"], "tx-soon")
+
+    def test_urgent_countdown_continues_below_three(self):
+        r = run_rough_tx_label(1.2)
+        self.assertEqual(r["text"], "Transmitting in 1.20s")
+        self.assertEqual(r["cls"], "tx-soon")
 
 
 if __name__ == "__main__":
