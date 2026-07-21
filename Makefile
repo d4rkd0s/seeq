@@ -14,6 +14,8 @@ test:
 	python3 tools/test_dashboard_actions.py
 	python3 tools/test_borders.py
 	python3 tools/test_qrz_xml.py
+	python3 tools/test_mode_registry.py
+	python3 tools/test_mode_switch.py
 
 selftest:
 	@echo "=== Running coa selftest ==="

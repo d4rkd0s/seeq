@@ -104,7 +104,8 @@ bin/coa stop                            # Force PTT release + shutdown
 
 - **[README.md](README.md)** — quick start, architecture, on-air etiquette
 - **[MISSION.md](MISSION.md)** — original project goals and status
-- **[docs/ROADMAP.md](docs/ROADMAP.md)** — Phase 1–5 tasks, model tiers, acceptance criteria
+- **[docs/ROADMAP.md](docs/ROADMAP.md)** — Phase 1–5 tasks, model tiers, acceptance criteria (build *process*)
+- **[docs/MODES-ROADMAP.md](docs/MODES-ROADMAP.md)** — FT8 → JS8 → email-over-radio mode roadmap and mode-switching architecture (build *capability*)
 - **[docs/COST.md](docs/COST.md)** — runtime cost ($0), dev cost breakdown, tinkering options
 - **[agents/PREPROMPT.md](agents/PREPROMPT.md)** — every agent reads this first: rig facts, safety chain, skill pointers
 

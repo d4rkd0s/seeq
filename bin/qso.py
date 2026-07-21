@@ -49,6 +49,12 @@ def ev(msg):
 ENGINE_JSON = os.path.join(DATA, "engine.json")
 _engine = {"utc": "", "state": "init", "target": None, "grid": None,
            "tx": False, "dx_mode": False, "msg": None, "offset": None, "next_tx_epoch": None,
+           # unkey_deadline_epoch: absolute epoch the independent watchdog
+           # will force-unkey by (boundary + WATCHDOG_S) -- set only while
+           # actually keyed (tx=True), so the dashboard can show "time to
+           # unkey" while hot. Display only, same as next_tx_epoch -- the
+           # real enforcement is the watchdog subprocess itself, not this.
+           "unkey_deadline_epoch": None,
            # tx_msg/tx_offset: the actual FT8 content of the last real (or
            # about-to-happen) transmission, for the dashboard's TX-transparency
            # panel. Deliberately separate from "msg" above, which doubles as a
@@ -472,13 +478,18 @@ def transmit(msg, f0, tx_count, our_parity):
     time.sleep(max(0, boundary - 0.7 - now()))
     rig("T", "1")
     ev(f"TX #{sum(tx_count.values())+1} '{msg}' @ {f0} Hz ({tx_count[msg]+1}x this msg, ~13.5 s keyed)")
-    write_engine_state(tx=True, msg=msg, offset=f0, next_tx_epoch=None, tx_msg=msg, tx_offset=f0)
+    # boundary + WATCHDOG_S matches the watchdog subprocess's own fire time
+    # exactly: it was spawned with sleep(WATCHDOG_S + max(0, boundary-now())),
+    # so it always fires WATCHDOG_S after the actual key-up moment regardless
+    # of scheduling jitter before key-up.
+    write_engine_state(tx=True, msg=msg, offset=f0, next_tx_epoch=None, tx_msg=msg, tx_offset=f0,
+                        unkey_deadline_epoch=boundary + WATCHDOG_S)
     subprocess.run(["paplay", f"--device={SINK}", wav])
     rig("T", "0")
     wd.terminate()
     ptt = rig("t")
     ev(f"unkeyed, PTT verify: {ptt}")
-    write_engine_state(tx=False)
+    write_engine_state(tx=False, unkey_deadline_epoch=None)
     tx_count[msg] += 1
     if ptt != "0":
         ev("ABORT: PTT did not release!")

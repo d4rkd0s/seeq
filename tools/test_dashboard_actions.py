@@ -112,6 +112,28 @@ class TestLoadDishFlower(unittest.TestCase):
         self.assertIn("dish", d["US"])
 
 
+class TestValidateModeSwitch(unittest.TestCase):
+    """_validate_mode_switch(): pure validation for /action/mode/switch's
+    POST body, mirroring _build_chase_args's (value_or_none, err_or_none)
+    shape. No subprocess-spawn testing here -- matches this file's
+    established boundary (see module docstring)."""
+
+    def test_known_mode_ok(self):
+        mode, err = dashboard._validate_mode_switch({"mode": "ft8"})
+        self.assertEqual(mode, "ft8")
+        self.assertIsNone(err)
+
+    def test_unknown_mode_rejected(self):
+        mode, err = dashboard._validate_mode_switch({"mode": "js8"})
+        self.assertIsNone(mode)
+        self.assertIn("unknown mode", err)
+
+    def test_missing_mode_rejected(self):
+        mode, err = dashboard._validate_mode_switch({})
+        self.assertIsNone(mode)
+        self.assertEqual(err, "mode required")
+
+
 class TestFlagCodeRegex(unittest.TestCase):
     """_FLAG_CODE_RE gates the /flags/<code>.svg endpoint before it ever
     touches the filesystem -- must accept only the exact [a-z]{2} shape

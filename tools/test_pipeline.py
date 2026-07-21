@@ -71,6 +71,21 @@ class TestStationConfig(unittest.TestCase):
         self.assertEqual(cfg["TX_PWR"], "10")
         self.assertEqual(cfg["BAND"], "20m")
 
+    def test_mode_key_round_trips_like_any_other_key(self):
+        # MODE (M0's mode-registry default/label key, see docs/MODES-ROADMAP.md)
+        # is just another station.conf key -- no special parsing needed.
+        with tempfile.NamedTemporaryFile("w", suffix=".conf", delete=False) as f:
+            f.write("MYCALL=N0CALL\nMODE=ft8\n")
+            path = f.name
+        try:
+            cfg = station_config.load(path)
+            station_config.save_keys({"MODE": "js8"}, path)
+            cfg2 = station_config.load(path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(cfg["MODE"], "ft8")
+        self.assertEqual(cfg2["MODE"], "js8")
+
 
 class TestDecodeStore(unittest.TestCase):
     def test_timestamp_format(self):

@@ -20,12 +20,13 @@ import state_borders                  # embedded state/province outlines (Natura
 import country_adjacency              # ISO2 -> neighboring ISO2s (geodatasource/country-borders)
 import logsync                        # QRZ Logbook status (read-only here) + sync subprocess
 import qrz_xml_api                    # QRZ XML (callsign/bio/photo) lookup -- separate subscription+auth from Logbook
+import mode_registry                  # M0 mode registry -- labels only here, never imports modes.*.pipeline
+                                       # itself (that only happens inside bin/mode_switch.py's own process)
 
 _C = station_config.load()
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _BIN = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.expanduser(_C.get("DATA", os.path.join(_ROOT, "data")))
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else int(_C.get("HTTP_PORT", 8074))
 MYCALL = _C.get("MYCALL", "N0CALL")
 MYGRID = _C.get("MYGRID", "AA00")
 CHASELOG = os.path.join(DATA, "chase.log")
@@ -66,16 +67,37 @@ LOGSYNC_PY = os.path.join(_BIN, "logsync.py")
 QRZ_FETCH_PY = os.path.join(_BIN, "qrz_fetch.py")
 QRZ_SYNC_LOG = os.path.join(DATA, "qrz-sync.log")
 QRZ_CACHE = os.path.join(DATA, "qrz-logbook.json")
+MODE_SWITCH_PY = os.path.join(_BIN, "mode_switch.py")
+ACTIVE_MODE_JSON = os.path.join(DATA, "active-mode.json")
+MODE_SWITCH_JSON = os.path.join(DATA, "mode-switch.json")
 RIG_MODEL = _C.get("RIG_MODEL", "3060")
 CAT_PORT = _C.get("CAT_PORT", "/dev/ttyUSB0")
 CAT_BAUD = _C.get("CAT_BAUD", "19200")
 
 CONFIG = {"mycall": MYCALL, "mygrid": MYGRID, "band": _C.get("BAND", ""),
           "dial_hz": int(_C.get("DIAL_HZ", "0") or 0),
-          "tx_pwr": _C.get("TX_PWR", ""), "mode": "FT8",
+          "tx_pwr": _C.get("TX_PWR", ""),
           "antenna": _C.get("ANTENNA", ""),
           "max_repeat": int(_C.get("MAX_REPEAT", 6)),
           "snr_floor_default": int(_C.get("SNR_FLOOR", -16))}
+
+
+def _active_mode():
+    """Current active mode name (e.g. "ft8"), or None before any mode has
+    been chosen this dashboard process's lifetime -- fail-open, same
+    convention as every other embedded-state loader in this app."""
+    try:
+        with open(ACTIVE_MODE_JSON) as f:
+            return json.load(f).get("mode")
+    except (OSError, ValueError):
+        return None
+
+
+def _active_mode_label():
+    name = _active_mode()
+    if name and name in mode_registry.MODES:
+        return mode_registry.MODES[name]["label"]
+    return None
 
 # Pre-encoded once at import time (349KB/261KB) rather than on every request --
 # these are only fetched lazily by the map widget's JS, never inlined into PAGE.
@@ -619,6 +641,15 @@ chmod 600 ~/.config/cota/qrz.key</pre>
   <div class=wbody><pre id=events>no events yet</pre></div>
  </div>
 
+</div>
+<div id=modeChooser class=modalOverlay style="display:none">
+ <div class=modalBox>
+  <div class=modalTitle>Welcome — select a mode to begin</div>
+  <div class=modalBody>
+   <div id=modeChooserButtons class=arow></div>
+   <div id=modeChooserStatus style="display:none;margin-top:10px;color:#8b949e"></div>
+  </div>
+ </div>
 </div>
 <div id=dxModal class=modalOverlay style="display:none">
  <div class=modalBox>
@@ -1670,11 +1701,23 @@ function roughTxLabel(secs){
  if(secs<=3) return {text:'Transmitting in '+secs.toFixed(2)+'s', cls:'tx-soon'};
  return {text:'—', cls:''};
 }
+/* ---- "time to unkey" while hot: unkey_deadline_epoch (qso.py) mirrors the
+   independent watchdog subprocess's own fire time exactly (boundary +
+   WATCHDOG_S), so this is showing the real deadline, not an estimate. Pure,
+   extracted for Node-harness testing. Falls back to plain 'ON AIR' if the
+   field is missing (older engine.json, or between qso.py restarts). ---- */
+function unkeyCountdownLabel(unkeyDeadlineEpoch, nowEpochSec){
+ if(!unkeyDeadlineEpoch) return 'ON AIR';
+ const secs=unkeyDeadlineEpoch-nowEpochSec;
+ if(secs<=0) return 'ON AIR — unkey now';
+ return 'ON AIR — unkey in '+secs.toFixed(1)+'s';
+}
 function updateNextTx(e, tx, st){
  const el=document.getElementById('cpNextTx');
  el.className='cpv';
  if(tx){
-  el.textContent='ON AIR'; el.classList.add('tx-live');
+  el.textContent=unkeyCountdownLabel(e&&e.unkey_deadline_epoch, Date.now()/1000);
+  el.classList.add('tx-live');
  }else if(st==='tx_abort'){
   el.textContent='TX ABORT'; el.classList.add('tx-abort');
  }else if(e && e.next_tx_epoch){
@@ -1888,6 +1931,60 @@ async function postAction(path, body){
  }catch(e){ return {ok:false, error:String(e)}; }
 }
 function setActionsMsg(t){ document.getElementById('actionsMsg').textContent=t; }
+
+/* ---- M0 mode chooser: boot never silently defaults into a mode (ground
+   rule #5, docs/MODES-ROADMAP.md) -- this overlay is the dashboard's
+   default view whenever /mode/state reports no active_mode, and it reuses
+   .modalOverlay/.modalBox exactly as #dxModal/#helpModal already do. A
+   mode switch is a deliberate 30-45s changeover (Logan's explicit ask), so
+   modeStageLabel surfaces each stage as it happens rather than a spinner. */
+function modeStageLabel(sw){
+ if(!sw) return '';
+ const from=sw.from?sw.from.toUpperCase():null;
+ const to=sw.to?sw.to.toUpperCase():'?';
+ switch(sw.stage){
+  case 'stopping': return `shutting down ${from}…`;
+  case 'verifying': return `verifying ${from} is clear…`;
+  case 'sanity_check': return 'sanity-checking hardware…';
+  case 'starting': return `starting ${to}…`;
+  case 'error': return `mode switch failed: ${sw.detail||'unknown error'}`;
+  case 'already_active': return `${to} already active`;
+  case 'done': return `${to} active`;
+  default: return sw.stage||'';
+ }
+}
+async function startModeSwitch(mode){
+ const statusEl=document.getElementById('modeChooserStatus');
+ statusEl.style.display='block';
+ statusEl.textContent=`starting ${mode}…`;
+ const r=await postAction('/action/mode/switch',{mode});
+ if(!r.ok) statusEl.textContent=`request failed: ${(r.body&&r.body.error)||r.error||r.status}`;
+}
+function renderModeChooserButtons(registry){
+ const box=document.getElementById('modeChooserButtons');
+ box.innerHTML=Object.keys(registry).map(k=>
+  `<button class=actionbtn data-mode="${k}">${registry[k].label}</button>`).join('');
+ box.querySelectorAll('button[data-mode]').forEach(btn=>{
+  btn.addEventListener('click',()=>startModeSwitch(btn.dataset.mode));
+ });
+}
+async function pollModeState(){
+ let s;
+ try{ s=await (await fetch('/mode/state?t='+Date.now())).json(); }catch(e){ return; }
+ const chooser=document.getElementById('modeChooser');
+ const statusEl=document.getElementById('modeChooserStatus');
+ if(s.switch){
+  statusEl.style.display='block';
+  statusEl.textContent=modeStageLabel(s.switch);
+ }
+ chooser.style.display=s.active_mode?'none':'flex';
+}
+async function loadModeRegistry(){
+ try{
+  const r=await fetch('/mode/registry?t='+Date.now());
+  renderModeChooserButtons(await r.json());
+ }catch(e){}
+}
 async function refreshActionsState(){
  try{
   const r=await fetch('/actions/state?t='+Date.now()); const j=await r.json();
@@ -2318,15 +2415,37 @@ function targetPickMessage(ok, chaserRunning, call){
  if(chaserRunning) return {msg:`requested ${call} — will be called next cycle`, needsConfirm:false};
  return {msg:`${call} queued as next target — click "Confirm start Automatic CQ" below to begin`, needsConfirm:true};
 }
+/* ---- "Call this station" IS the explicit go: a specifically-labeled
+   button click on a specifically-picked target is at least as deliberate
+   as the generic "Automatic CQ" -> "Confirm start Automatic CQ" two-step,
+   so when the chaser isn't already running this starts it immediately for
+   exactly this one contact -- no second click. dx_only is forced OFF
+   regardless of the Actions widget's toggle: this is a single deliberately
+   -picked target, and DX Mode's country filter would otherwise silently
+   refuse to ever call them if that toggle happened to be on. All existing
+   TX safety rails (watchdog, frequency read-back, PTT verification,
+   attended operation) are unchanged -- only the extra confirm click goes
+   away. When the chaser IS already running, this just queues the request
+   as before (targetPickMessage's chaser-running branch). ---- */
 document.getElementById('ccCallBtn').addEventListener('click',async()=>{
  const call=document.getElementById('ccCallBtn').dataset.call;
- const r=await postAction('/action/target/pick',{call});
- const m=targetPickMessage(r.ok, !!(r.body&&r.body.chaser_running), call);
- setActionsMsg(m.msg);
- if(m.needsConfirm){
-  document.getElementById('chaseConfirmMsg').style.display='block';
-  document.getElementById('actionsWidget').scrollIntoView({behavior:'smooth',block:'center'});
+ const pickR=await postAction('/action/target/pick',{call});
+ if(!pickR.ok){
+  setActionsMsg('request failed');
+  closeCountryCard();
+  return;
  }
+ if(pickR.body && pickR.body.chaser_running){
+  setActionsMsg(targetPickMessage(true, true, call).msg);
+  closeCountryCard();
+  return;
+ }
+ setActionsMsg(`starting Automatic CQ for ${call}…`);
+ const startR=await postAction('/action/chase/start',{confirm:true,mode:'qsos',n:1,dx_only:false});
+ setActionsMsg(startR.ok
+  ?`Automatic CQ started for ${call}${startR.body.rx_autostarted?' (RX auto-started)':''} — you are the control operator, stay at the radio`
+  :`start failed: ${(startR.body&&startR.body.error)||startR.error||startR.status}`);
+ refreshActionsState();
  closeCountryCard();
 });
 document.getElementById('resetLayout').addEventListener('click',resetLayout);
@@ -2349,6 +2468,8 @@ setInterval(nextTxFastTick,150);           // smooth NEXT TX countdown between e
 refreshActionsState(); setInterval(refreshActionsState,3000);
 loadQrzStatus(); setInterval(loadQrzStatus,10000);
 loadLogbook(); setInterval(loadLogbook,15000);
+loadModeRegistry();
+pollModeState(); setInterval(pollModeState,1000);
 </script></body></html>"""
 PAGE = (PAGE.replace("__MYCALL__", MYCALL).replace("__MYGRID__", MYGRID)
             .replace("__EVENT_LINES__", str(EVENT_LINES))
@@ -2621,6 +2742,17 @@ def _build_chase_args(body):
         desc += " [DX Mode]"
     return args, desc, None
 
+def _validate_mode_switch(body):
+    """Pure validation for /action/mode/switch's POST body. Returns
+    (mode_name, None) on success, or (None, error_msg) on failure -- unit
+    testable without an HTTP server, same style as _build_chase_args."""
+    mode = str(body.get("mode", "")).strip()
+    if not mode:
+        return None, "mode required"
+    if mode not in mode_registry.MODES:
+        return None, f"unknown mode {mode!r} (known: {sorted(mode_registry.MODES)})"
+    return mode, None
+
 class H(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=DATA, **kw)
@@ -2646,7 +2778,19 @@ class H(http.server.SimpleHTTPRequestHandler):
             body = json.dumps({"lines": chase_tail()}).encode()
             self.send_body(body, "application/json")
         elif path == "/config":
-            self.send_body(json.dumps(CONFIG).encode(), "application/json")
+            self.send_body(json.dumps(dict(CONFIG, mode=_active_mode_label() or "—")).encode(),
+                            "application/json")
+        elif path == "/mode/registry":
+            body = json.dumps({k: {"label": v["label"]} for k, v in mode_registry.MODES.items()}).encode()
+            self.send_body(body, "application/json")
+        elif path == "/mode/state":
+            state = {"active_mode": _active_mode(), "switch": None}
+            try:
+                with open(MODE_SWITCH_JSON) as f:
+                    state["switch"] = json.load(f)
+            except (OSError, ValueError):
+                pass
+            self.send_body(json.dumps(state).encode(), "application/json")
         elif path == "/antennas":
             self.send_body(json.dumps(_load_antennas()).encode(), "application/json")
         elif path == "/bands":
@@ -2736,6 +2880,8 @@ class H(http.server.SimpleHTTPRequestHandler):
                 self._action_chase_stop()
             elif path == "/action/unkey":
                 self._action_unkey()
+            elif path == "/action/mode/switch":
+                self._action_mode_switch(body)
             elif path == "/action/target/pick":
                 self._action_target_write(body, TARGET_REQ, "pick", need_call=True)
             elif path == "/action/target/skip":
@@ -2845,6 +2991,23 @@ class H(http.server.SimpleHTTPRequestHandler):
             log_action(f"UNKEY: PTT readback error: {e!r}")
         log_action(f"UNKEY: rigctl T 0 (sent first); pkill -f {QSO_PY} (killed={killed}); PTT readback={ptt}")
         self._ok({"unkeyed": True, "killed": killed, "ptt": ptt})
+
+    def _action_mode_switch(self, body):
+        """Fire-and-forget: spawns bin/mode_switch.py detached (the
+        changeover takes 30-45s, far too slow for one HTTP request) and
+        returns immediately. The browser polls /mode/state for staged
+        progress -- same fire-detached-then-poll shape as every other slow
+        action in this file."""
+        mode, err = _validate_mode_switch(body)
+        if err:
+            return self._err(400, err)
+        if DRYRUN:
+            log_action(f"[DRYRUN] would switch mode: python3 {MODE_SWITCH_PY} switch {mode}")
+            return self._ok({"started": True, "dryrun": True})
+        _spawn_detached(["python3", MODE_SWITCH_PY, "switch", mode],
+                         os.path.join(DATA, "mode-switch.log"))
+        log_action(f"mode/switch: spawned python3 {MODE_SWITCH_PY} switch {mode}")
+        self._ok({"started": True})
 
     def _action_target_write(self, body, path, kind, need_call):
         call = str(body.get("call", "")).strip().upper()
@@ -3039,6 +3202,23 @@ class H(http.server.SimpleHTTPRequestHandler):
         pass
 
 if __name__ == "__main__":
+    # PORT is only ever needed for the real server bind below -- computed
+    # here, not at module level, specifically so `import dashboard` is safe
+    # from any process with its own unrelated argv (bin/mode_switch.py in
+    # particular: sys.argv there is ["mode_switch.py","switch","ft8"], and
+    # int(sys.argv[1]) at module level crashed trying int("switch")).
+    PORT = int(sys.argv[1]) if len(sys.argv) > 1 else int(_C.get("HTTP_PORT", 8074))
+    # A fresh dashboard process always starts with no mode active (ground
+    # rule #5, docs/MODES-ROADMAP.md) -- never trust active-mode.json/
+    # mode-switch.json left over from a previous run or crash. Underlying
+    # pipelines (qso.py/rx-loop.sh) may still actually be running; that's
+    # fine, each mode's start()/preflight() already handles "already
+    # running" as a safe no-op, not a silent-default violation.
+    for _stale in (ACTIVE_MODE_JSON, MODE_SWITCH_JSON):
+        try:
+            os.remove(_stale)
+        except OSError:
+            pass
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("127.0.0.1", PORT), H) as srv:
         print(f"COTA dashboard: http://localhost:{PORT}"

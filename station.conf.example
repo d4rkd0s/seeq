@@ -6,6 +6,8 @@
 # You are the control operator: FCC Part 97 (or your country's rules) requires an
 # attending licensed operator responsible for every transmission.
 
+MODE=ft8                        # default/label mode for 'coa setup' -- NOT a runtime auto-select:
+                                 # the dashboard always boots to a mode chooser (docs/MODES-ROADMAP.md)
 MYCALL=N0CALL                   # YOUR callsign (N0CALL will not decode — change it!)
 MYGRID=AA00                     # first 4 chars of YOUR Maidenhead locator (AA00aa -> AA00); FT8 messages carry 4
 DIAL_HZ=14074000                # FT8 watering hole, Hz (40 m = 7074000, 20 m = 14074000)

@@ -232,6 +232,31 @@ def run_rough_tx_label(secs):
     return json.loads(r.stdout)
 
 
+def extract_unkey_countdown_label_js():
+    """Slice unkeyCountdownLabel() verbatim out of dashboard.py's rendered
+    PAGE, between its declaration and updateNextTx() which consumes it."""
+    page = _dashboard_module().PAGE
+    start = page.index("function unkeyCountdownLabel(")
+    end = page.index("\nfunction updateNextTx(", start)
+    snippet = page[start:end]
+    assert "ON AIR" in snippet, (
+        "unkeyCountdownLabel() not found between markers -- dashboard.py "
+        "layout changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_unkey_countdown_label(unkey_deadline_epoch, now_epoch_sec):
+    js = extract_unkey_countdown_label_js()
+    deadline = "null" if unkey_deadline_epoch is None else repr(unkey_deadline_epoch)
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(unkeyCountdownLabel(%s, %r)));"
+    ) % (deadline, now_epoch_sec)
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
 def extract_pan_zoom_viewbox_js():
     """Slice panViewBox()/zoomViewBox() verbatim out of dashboard.py's
     rendered PAGE, prefixed with the two small constant-declaration lines
@@ -593,6 +618,30 @@ class TestRoughTxLabel(unittest.TestCase):
         r = run_rough_tx_label(1.2)
         self.assertEqual(r["text"], "Transmitting in 1.20s")
         self.assertEqual(r["cls"], "tx-soon")
+
+
+class TestUnkeyCountdownLabel(unittest.TestCase):
+    """'Time to unkey' while hot (cpNextTx while tx=true): unkey_deadline_epoch
+    is qso.py's own watchdog fire time (boundary + WATCHDOG_S), not an
+    estimate. Missing/None falls back to plain 'ON AIR' (older engine.json,
+    or the brief window before the first TX of a session sets the field)."""
+
+    def test_missing_deadline_falls_back_to_plain_on_air(self):
+        self.assertEqual(run_unkey_countdown_label(None, 1000.0), "ON AIR")
+
+    def test_counts_down_while_time_remains(self):
+        self.assertEqual(run_unkey_countdown_label(1014.0, 1000.0), "ON AIR — unkey in 14.0s")
+
+    def test_counts_down_to_fractional_seconds(self):
+        self.assertEqual(run_unkey_countdown_label(1003.4, 1000.0), "ON AIR — unkey in 3.4s")
+
+    def test_at_deadline_shows_unkey_now(self):
+        self.assertEqual(run_unkey_countdown_label(1000.0, 1000.0), "ON AIR — unkey now")
+
+    def test_past_deadline_still_shows_unkey_now(self):
+        # Watchdog fired but the dashboard hasn't polled a fresh tx=false yet
+        # -- must never show a negative countdown.
+        self.assertEqual(run_unkey_countdown_label(999.0, 1000.0), "ON AIR — unkey now")
 
 
 class TestPanViewBox(unittest.TestCase):
