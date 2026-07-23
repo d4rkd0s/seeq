@@ -257,6 +257,75 @@ def run_unkey_countdown_label(unkey_deadline_epoch, now_epoch_sec):
     return json.loads(r.stdout)
 
 
+def extract_mode_label_for_js():
+    """Slice modeLabelFor() verbatim out of dashboard.py's rendered PAGE,
+    between its declaration and pollModeState() which consumes it."""
+    page = _dashboard_module().PAGE
+    start = page.index("function modeLabelFor(")
+    end = page.index("\nasync function pollModeState(", start)
+    snippet = page[start:end]
+    assert "registry" in snippet, (
+        "modeLabelFor() not found between markers -- dashboard.py layout "
+        "changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_mode_label_for(active_mode, registry):
+    js = extract_mode_label_for_js()
+    am = "null" if active_mode is None else json.dumps(active_mode)
+    script = js + "\nprocess.stdout.write(modeLabelFor(%s, %s));" % (am, json.dumps(registry))
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return r.stdout
+
+
+def extract_header_status_label_js():
+    """Slice headerStatusLabel() verbatim out of dashboard.py's rendered
+    PAGE, between its declaration and refreshActionsState() which consumes
+    it."""
+    page = _dashboard_module().PAGE
+    start = page.index("function headerStatusLabel(")
+    end = page.index("\nasync function refreshActionsState(", start)
+    snippet = page[start:end]
+    assert "Transmitting" in snippet, (
+        "headerStatusLabel() not found between markers -- dashboard.py "
+        "layout changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_header_status_label(tx, chaser_running, rxloop_running):
+    js = extract_header_status_label_js()
+    script = js + "\nprocess.stdout.write(headerStatusLabel(%s,%s,%s));" % (
+        json.dumps(tx), json.dumps(chaser_running), json.dumps(rxloop_running))
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return r.stdout
+
+
+def extract_bp_pills_html_js():
+    """Slice bpPillsHtml() verbatim out of dashboard.py's rendered PAGE,
+    between its declaration and loadBandPulse() which consumes it."""
+    page = _dashboard_module().PAGE
+    start = page.index("function bpPillsHtml(")
+    end = page.index("\nasync function loadBandPulse(", start)
+    snippet = page[start:end]
+    assert "bpPill" in snippet, (
+        "bpPillsHtml() not found between markers -- dashboard.py layout "
+        "changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_bp_pills_html(top):
+    js = extract_bp_pills_html_js()
+    script = js + "\nprocess.stdout.write(bpPillsHtml(%s));" % json.dumps(top)
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return r.stdout
+
+
 def extract_pan_zoom_viewbox_js():
     """Slice panViewBox()/zoomViewBox() verbatim out of dashboard.py's
     rendered PAGE, prefixed with the two small constant-declaration lines
@@ -642,6 +711,64 @@ class TestUnkeyCountdownLabel(unittest.TestCase):
         # Watchdog fired but the dashboard hasn't polled a fresh tx=false yet
         # -- must never show a negative countdown.
         self.assertEqual(run_unkey_countdown_label(999.0, 1000.0), "ON AIR — unkey now")
+
+
+class TestModeLabelFor(unittest.TestCase):
+    """modeLabelFor(): header 'Mode: X' text -- looks up the active mode's
+    label in the already-polled registry, same data pollModeState()/
+    loadModeRegistry() already fetch, no extra network call."""
+
+    def test_no_active_mode_shows_dash(self):
+        self.assertEqual(run_mode_label_for(None, {}), "—")
+
+    def test_known_mode_shows_registry_label(self):
+        self.assertEqual(run_mode_label_for("ft8", {"ft8": {"label": "FT8"}}), "FT8")
+
+    def test_unknown_mode_falls_back_to_raw_key(self):
+        self.assertEqual(run_mode_label_for("js8", {"ft8": {"label": "FT8"}}), "js8")
+
+
+class TestHeaderStatusLabel(unittest.TestCase):
+    """headerStatusLabel(): replaces the old static 'RX monitor' header
+    text with the same live tx/chaser/rxloop signal refreshActionsState()
+    already polls every 3s -- tx beats chasing beats plain receiving."""
+
+    def test_tx_wins_over_everything(self):
+        self.assertEqual(run_header_status_label(True, True, True), "Transmitting")
+
+    def test_chaser_armed_not_yet_keyed(self):
+        self.assertEqual(run_header_status_label(False, True, True), "Chasing")
+
+    def test_rx_only(self):
+        self.assertEqual(run_header_status_label(False, False, True), "Receiving")
+
+    def test_idle_when_nothing_running(self):
+        self.assertEqual(run_header_status_label(False, False, False), "Idle")
+
+
+class TestBpPillsHtml(unittest.TestCase):
+    """bpPillsHtml(): pure rendering for the bandpulse.net top-3-bands
+    banner -- one <span class="bpPill st-<state>"> per band, state drives
+    the color (green/yellow/red/gray, see #bpBanner CSS)."""
+
+    def test_renders_one_pill_per_band(self):
+        html = run_bp_pills_html([
+            {"id": "40m", "name": "40 m", "state": "green", "label": "Open", "score": 88},
+            {"id": "20m", "name": "20 m", "state": "yellow", "label": "Holding", "score": 60},
+        ])
+        self.assertEqual(html.count("bpPill"), 2)
+
+    def test_state_drives_css_class(self):
+        html = run_bp_pills_html([{"id": "40m", "name": "40 m", "state": "green", "label": "Open", "score": 88}])
+        self.assertIn("st-green", html)
+
+    def test_band_name_and_score_visible(self):
+        html = run_bp_pills_html([{"id": "40m", "name": "40 m", "state": "green", "label": "Open", "score": 88}])
+        self.assertIn("40 m", html)
+        self.assertIn("score 88", html)
+
+    def test_empty_list_renders_nothing(self):
+        self.assertEqual(run_bp_pills_html([]), "")
 
 
 class TestPanViewBox(unittest.TestCase):

@@ -16,6 +16,7 @@ test:
 	python3 tools/test_qrz_xml.py
 	python3 tools/test_mode_registry.py
 	python3 tools/test_mode_switch.py
+	python3 tools/test_bandpulse.py
 
 selftest:
 	@echo "=== Running coa selftest ==="

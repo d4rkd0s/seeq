@@ -22,6 +22,7 @@ import logsync                        # QRZ Logbook status (read-only here) + sy
 import qrz_xml_api                    # QRZ XML (callsign/bio/photo) lookup -- separate subscription+auth from Logbook
 import mode_registry                  # M0 mode registry -- labels only here, never imports modes.*.pipeline
                                        # itself (that only happens inside bin/mode_switch.py's own process)
+import bandpulse                      # bandpulse.net v1Conditions client -- top-3-bands banner
 
 _C = station_config.load()
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -136,6 +137,16 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYC
  .next{font-size:15px} .next .callchip-main{font-size:21px;padding:6px 14px}
  .dim{color:#8b949e;font-size:12px} .snr-good{color:#3fb950}.snr-bad{color:#8b949e}
  #stale{display:none;color:#f85149;font-weight:700}
+ #bpBanner{display:none;align-items:center;text-decoration:none;vertical-align:middle}
+ #bpBanner .bpSep{color:#8b949e;margin:0 6px 0 0}
+ #bpBanner:hover .bpPill{filter:brightness(1.2)}
+ .bpPills{display:inline-flex;gap:4px}
+ .bpPill{font-family:ui-monospace,monospace;font-size:11px;font-weight:700;padding:1px 6px;
+  border-radius:4px;border:1px solid}
+ .bpPill.st-green{color:#3fb950;border-color:#3fb950;background:rgba(63,185,80,.1)}
+ .bpPill.st-yellow{color:#d29922;border-color:#d29922;background:rgba(210,153,34,.1)}
+ .bpPill.st-red{color:#f85149;border-color:#f85149;background:rgba(248,81,73,.1)}
+ .bpPill.st-gray{color:#8b949e;border-color:#8b949e;background:rgba(139,148,158,.1)}
  #events{font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap;
   overflow-x:auto;max-height:100%;overflow-y:auto;margin:0;color:#d2a8ff}
  #events .tx{color:#f0883e;font-weight:600} #events .good{color:#3fb950;font-weight:600}
@@ -442,7 +453,7 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYC
 </style></head><body>
 <div id=newCountryGlow></div>
 <div id=newCountryBanner><div class=newCountryBannerTitle>✨ NEW COUNTRY ✨</div><div id=newCountryBannerBody class=newCountryBannerBody></div></div>
-<h1>\U0001F4FB COTA <small>— __MYCALL__ · __MYGRID__ · Mode: FT8 · RX monitor</small> <span id=stale>⚠ STALE — rx-loop not updating</span></h1>
+<h1>\U0001F4FB COTA <small>— __MYCALL__ · __MYGRID__ · Mode: <span id=hMode>—</span> · <span id=hStatus>—</span></small> <a id=bpBanner href="https://bandpulse.net" target=_blank rel=noopener style="display:none" title="live HF band conditions via bandpulse.net — click to see all bands"><span class=bpSep>·</span><span id=bpPills class=bpPills></span></a> <span id=stale>⚠ STALE — rx-loop not updating</span></h1>
 <div id=cockpit>
  <div class=cpitem><span class=cpk>STATE</span><span class="cpv st-" id=cpState>—</span></div>
  <div class=cpitem><span class=cpk>CALLING</span><span class=cpv id=cpCalling title="where the current target is (DXCC-style prefix lookup, best-effort)">—</span></div>
@@ -892,7 +903,7 @@ function renderEvents(){
 
 /* ---- world map ---- */
 const MW=1000, MH=500;
-let HOME=null, CFG=null;
+let HOME=null, CFG=null, MODE_REGISTRY={};
 let mapPoints={rx:[], tx:null, qso:[]};
 /* ---- fallback grid source for the TX line: many CQs omit a grid, and
    engine.json's grid field is only ever set from the CQ we originally
@@ -1968,6 +1979,10 @@ function renderModeChooserButtons(registry){
   btn.addEventListener('click',()=>startModeSwitch(btn.dataset.mode));
  });
 }
+function modeLabelFor(activeMode, registry){
+ if(!activeMode) return '—';
+ return (registry[activeMode]&&registry[activeMode].label)||activeMode;
+}
 async function pollModeState(){
  let s;
  try{ s=await (await fetch('/mode/state?t='+Date.now())).json(); }catch(e){ return; }
@@ -1978,17 +1993,41 @@ async function pollModeState(){
   statusEl.textContent=modeStageLabel(s.switch);
  }
  chooser.style.display=s.active_mode?'none':'flex';
+ document.getElementById('hMode').textContent=modeLabelFor(s.active_mode,MODE_REGISTRY);
 }
 async function loadModeRegistry(){
  try{
   const r=await fetch('/mode/registry?t='+Date.now());
-  renderModeChooserButtons(await r.json());
+  MODE_REGISTRY=await r.json();
+  renderModeChooserButtons(MODE_REGISTRY);
  }catch(e){}
+}
+function bpPillsHtml(top){
+ return top.map(b=>
+  `<span class="bpPill st-${b.state}" title="${b.name}: ${b.label} (score ${b.score})">${b.name}</span>`).join('');
+}
+async function loadBandPulse(){
+ const banner=document.getElementById('bpBanner');
+ try{
+  const r=await fetch('/bandpulse/conditions?t='+Date.now());
+  const j=await r.json();
+  if(!j.ok||!j.top||!j.top.length){ banner.style.display='none'; return; }
+  document.getElementById('bpPills').innerHTML=bpPillsHtml(j.top);
+  banner.title=`live HF band conditions via bandpulse.net — click to see all bands\n${j.attribution||''}`;
+  banner.style.display='inline-flex';
+ }catch(e){ banner.style.display='none'; }
+}
+function headerStatusLabel(tx,chaserRunning,rxloopRunning){
+ if(tx) return 'Transmitting';
+ if(chaserRunning) return 'Chasing';
+ if(rxloopRunning) return 'Receiving';
+ return 'Idle';
 }
 async function refreshActionsState(){
  try{
   const r=await fetch('/actions/state?t='+Date.now()); const j=await r.json();
   const tx=!!j.ptt;
+  document.getElementById('hStatus').textContent=headerStatusLabel(tx,!!j.chaser,!!j.rxloop);
   // this pill was showing rx-loop's process-alive state ("running") even
   // while actively keyed, which reads as "we're receiving, not transmitting"
   // right when the opposite is true -- flip both the label and value to a
@@ -2470,6 +2509,7 @@ loadQrzStatus(); setInterval(loadQrzStatus,10000);
 loadLogbook(); setInterval(loadLogbook,15000);
 loadModeRegistry();
 pollModeState(); setInterval(pollModeState,1000);
+loadBandPulse(); setInterval(loadBandPulse,300000);
 </script></body></html>"""
 PAGE = (PAGE.replace("__MYCALL__", MYCALL).replace("__MYGRID__", MYGRID)
             .replace("__EVENT_LINES__", str(EVENT_LINES))
@@ -2791,6 +2831,14 @@ class H(http.server.SimpleHTTPRequestHandler):
             except (OSError, ValueError):
                 pass
             self.send_body(json.dumps(state).encode(), "application/json")
+        elif path == "/bandpulse/conditions":
+            ok, result = bandpulse.get_cached_or_fetch(MYGRID)
+            if ok:
+                self._ok({"top": bandpulse.top_bands(result, 3),
+                           "attribution": result.get("attribution", ""),
+                           "cell": result.get("cell")})
+            else:
+                self._err(502, result)
         elif path == "/antennas":
             self.send_body(json.dumps(_load_antennas()).encode(), "application/json")
         elif path == "/bands":
