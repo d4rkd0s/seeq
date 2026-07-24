@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea to improve COTA
+about: Suggest an idea to improve SeeQ
 title: "[FEATURE] "
 labels: enhancement
 assignees: ''
@@ -13,7 +13,7 @@ A clear and concise description of the feature you'd like to see.
 
 ## Problem it solves
 
-Is this related to a problem in the current COTA workflow? Describe it in one or two sentences.
+Is this related to a problem in the current SeeQ workflow? Describe it in one or two sentences.
 
 ## Proposed solution
 

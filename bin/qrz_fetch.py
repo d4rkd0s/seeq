@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""coa QRZ logbook fetch — refresh data/qrz-logbook.json from QRZ.
+"""seeq QRZ logbook fetch — refresh data/qrz-logbook.json from QRZ.
 
 Pages through the QRZ Logbook (MAX:250 per request, AFTERLOGID paging as
 the API guide recommends) and writes the full record list to a local JSON

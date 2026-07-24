@@ -9,7 +9,7 @@ tools:
   - Bash
 ---
 
-# COTA Docs Editor
+# SeeQ Docs Editor
 
 **Scope:** README, CONTRIBUTING, ROADMAP, docs/, comments, examples. Never edit Python/bash logic, `agents/PREPROMPT.md`, or TX safety code.
 

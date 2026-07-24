@@ -52,10 +52,10 @@ What steps did you take to isolate or fix the RFI?
 
 ## Diagnostic output
 
-Run `./bin/coa doctor` and paste the output (especially audio levels and clock sync):
+Run `./bin/seeq doctor` and paste the output (especially audio levels and clock sync):
 
 ```
-<paste coa doctor output here>
+<paste seeq doctor output here>
 ```
 
 Useful commands:

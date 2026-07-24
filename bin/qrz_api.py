@@ -28,7 +28,7 @@ import urllib.parse
 import adif
 
 API_URL = "https://logbook.qrz.com/api"
-USER_AGENT = "COTA/1.2 (+https://github.com/d4rkd0s/cota)"
+USER_AGENT = "SeeQ/1.2 (+https://github.com/d4rkd0s/seeq)"
 
 # Every response key QRZ is known to emit (top-level or inside STATUS's
 # nested DATA blob — its inner keys being listed here is what lets flat

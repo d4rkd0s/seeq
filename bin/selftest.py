@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""coa selftest — proves the offline decode chain with no radio, no audio
+"""seeq selftest — proves the offline decode chain with no radio, no audio
 device, and no antenna: synthesize a reference FT8 frame (ft8code + numpy
 GFSK synth via tools/ft8synth.py), decode it with jt9, and check the expected
 message comes back.
@@ -42,7 +42,7 @@ def main():
         print("selftest: cannot proceed without ft8code/jt9 (WSJT-X package) on PATH")
         return 1
 
-    tmpdir = tempfile.mkdtemp(prefix="coa-selftest-")
+    tmpdir = tempfile.mkdtemp(prefix="seeq-selftest-")
     try:
         wav = os.path.join(tmpdir, "ref.wav")
         synth = subprocess.run(

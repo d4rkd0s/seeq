@@ -1,6 +1,6 @@
 # MODES ROADMAP — FT8 → JS8 → email-over-radio
 
-This is the *capability* roadmap: which digital modes COTA drives and how the dashboard
+This is the *capability* roadmap: which digital modes SeeQ drives and how the dashboard
 is organized to support more than one. It's a sibling to [ROADMAP.md](ROADMAP.md), which
 tracks the $0-cost build *process* instead — that one doesn't change here.
 
@@ -28,7 +28,7 @@ Legend matches ROADMAP.md: **H**=Haiku-class cheap, **S**=Sonnet-class mid, **0*
    Explicit instruction from Logan: switching modes should power down the current mode
    fully, wait until everything has actually stopped, run a sanity check, and only then
    bring the new mode up — with visible operational weight to it, not a slick instant
-   toggle. Concretely, `coa mode switch <name>` is a sequenced, polled changeover:
+   toggle. Concretely, `seeq mode switch <name>` is a sequenced, polled changeover:
    force-unkey → request stop of the current mode's pipeline/chaser → **poll until every
    process/PTT/lockfile confirms actually stopped** (not fire-and-forget) → sanity check
    (CAT port free, PTT reads 0, no stray process holding the audio device or serial port)
@@ -55,12 +55,12 @@ Legend matches ROADMAP.md: **H**=Haiku-class cheap, **S**=Sonnet-class mid, **0*
   if/when that becomes the right call.
 - **Changeover poll timeout: 30–45 s.** Deliberate by design — Logan's framing: "so the
   HAM is deliberate in mode switching."
-- **Boot chooser is dashboard-only; `coa start` unchanged in scriptability** — no
-  pipeline auto-starts on `coa start` once M0 lands (a real behavior change from today,
+- **Boot chooser is dashboard-only; `seeq start` unchanged in scriptability** — no
+  pipeline auto-starts on `seeq start` once M0 lands (a real behavior change from today,
   see M0's task table below). Logan flagged this one as "don't fully get it" and deferred
   to the recommendation — **revisit this specific call once M0's UI actually exists and
   is easier to react to hands-on**, don't treat it as permanently settled.
-- **`coa chase N` stays a direct, unchanged CLI fast-path** — but per Logan's explicit
+- **`seeq chase N` stays a direct, unchanged CLI fast-path** — but per Logan's explicit
   ask, it needs a **strong visual warning** (his words: "warn harder / show red/yellow
   and alert the user") since it's the one path that skips the deliberate changeover
   machinery entirely. New M0 task (M0.7) for this.
@@ -76,8 +76,8 @@ seam earns its keep — one mode never needed it, two do.
 seam, and ~15 JS tests string-slice functions out of that exact `PAGE` variable by name.
 Physically relocating all of that into `bin/modes/ft8/panel.py` is real, mechanical,
 sizeable surgery with zero user-visible payoff until JS8 exists to be the second panel.
-**M0a builds the switching machinery now** (registry, `coa mode switch`, the changeover,
-the boot chooser, the `coa chase` warning) as purely additive code — zero lines of
+**M0a builds the switching machinery now** (registry, `seeq mode switch`, the changeover,
+the boot chooser, the `seeq chase` warning) as purely additive code — zero lines of
 `qso.py`/`rx-loop.sh`/`parse_decodes.py` touched, zero lines of `dashboard.py`'s existing
 FT8 widget HTML/JS moved. **M0b (the physical `PAGE` split) is deferred** until M1
 actually needs a second panel to exist — its cut points get decided by JS8's real
@@ -88,14 +88,14 @@ requirements, not speculatively now.
 | # | Task | Model | Notes |
 |---|------|-------|-------|
 | M0a.1 | `bin/modes/<name>/` package convention: `pipeline.py` (RX/capture lifecycle — for FT8, thin wrapper reusing `dashboard.py`'s already-tested `_spawn_detached`/`_pkill`/`_proc_running` around `rx-loop.sh`), `engine.py` (TX/chase lifecycle — for FT8, thin wrapper around `_build_chase_args` + `qso.py` spawn) | S | Just FT8 for M0a; `panel.py` is M0b's concern, not built yet. |
-| M0a.2 | `bin/mode_registry.py` — static registry (`{"ft8": {...}}`) + `load_mode(name)` dynamic loader; `station.conf` `MODE=ft8` field (label/default for `coa setup`, not a runtime auto-select — see M0a.5) | S | Extension point M1 adds one entry to. |
-| M0a.3 | `bin/mode_switch.py` — sequenced, polled changeover per ground rule #4: force-unkey → request stop → **poll until confirmed stopped** (30–45 s timeout, injectable clock for tests) → sanity check (CAT free, PTT=0, no stray process) → preflight target mode → start target pipeline. Writes staged progress to `data/mode-switch.json`, `data/active-mode.json` on success. Callable via `coa mode switch <name>` (new `bin/coa` case) or the dashboard's `/action/mode/switch`. | S | Failed sanity check always hard-aborts, never proceeds. |
+| M0a.2 | `bin/mode_registry.py` — static registry (`{"ft8": {...}}`) + `load_mode(name)` dynamic loader; `station.conf` `MODE=ft8` field (label/default for `seeq setup`, not a runtime auto-select — see M0a.5) | S | Extension point M1 adds one entry to. |
+| M0a.3 | `bin/mode_switch.py` — sequenced, polled changeover per ground rule #4: force-unkey → request stop → **poll until confirmed stopped** (30–45 s timeout, injectable clock for tests) → sanity check (CAT free, PTT=0, no stray process) → preflight target mode → start target pipeline. Writes staged progress to `data/mode-switch.json`, `data/active-mode.json` on success. Callable via `seeq mode switch <name>` (new `bin/seeq` case) or the dashboard's `/action/mode/switch`. | S | Failed sanity check always hard-aborts, never proceeds. |
 | M0a.4 | Boot-time "Welcome — select a mode to begin" chooser (`#modeChooser`, reuses the existing `.modalOverlay` CSS pattern) per ground rule #5 — dashboard-only, purely additive to the current page, doesn't touch existing widget markup. `data/active-mode.json` ignored/cleared at each dashboard.py process start, so a fresh process never silently defaults. | S | |
-| M0a.5 | `coa chase N` fast-path warning — hard-to-miss ANSI red/yellow terminal banner before the chase starts, since this path skips the changeover entirely | H | Per Logan's explicit ask. Terminal-only for M0a. |
+| M0a.5 | `seeq chase N` fast-path warning — hard-to-miss ANSI red/yellow terminal banner before the chase starts, since this path skips the changeover entirely | H | Per Logan's explicit ask. Terminal-only for M0a. |
 
 **M0a acceptance:** boot shows the mode chooser; picking FT8 runs the changeover sequence
-and lands on the dashboard exactly as it looks today (nothing in `PAGE` moved); `coa mode
-switch ft8` works standalone from the CLI too; `coa chase N` still works unchanged plus
+and lands on the dashboard exactly as it looks today (nothing in `PAGE` moved); `seeq mode
+switch ft8` works standalone from the CLI too; `seeq chase N` still works unchanged plus
 the new warning; `make test` green throughout.
 
 ### M0b — physical panel split (deferred, not scheduled yet)
@@ -134,7 +134,7 @@ already-verified design:
   down there — this mode does not start from zero the way JS8 (M1) does.
 - The skill file's own "Alternatives" note already draws the JS8-vs-Winlink line: JS8's
   MSG/store-and-forward (M1) is JS8-to-JS8 only; Winlink is the actual bridge to real
-  internet email. Two distinct COTA modes, not one absorbing the other — `skills/js8.md`
+  internet email. Two distinct SeeQ modes, not one absorbing the other — `skills/js8.md`
   says the same thing from the other side.
 
 What M2 actually needs, now that M0's mode abstraction exists: wrap this already-working

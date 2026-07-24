@@ -12,7 +12,7 @@ import subprocess
 import time
 
 API_URL = "https://bandpulse.net/functions/v1Conditions"
-USER_AGENT = "COTA-dashboard/1.0 (+https://github.com/d4rkd0s/cota)"
+USER_AGENT = "SeeQ-dashboard/1.0 (+https://github.com/d4rkd0s/seeq)"
 CACHE_TTL_S = 300  # matches bandpulse.net's own server-side cache window
 
 _state = {}  # grid -> {"last_attempt": epoch, "last_ok": bool, "last_result": data_or_err, "last_good": data_or_None}

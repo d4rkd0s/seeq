@@ -125,7 +125,7 @@ DISH_FLOWER_JSON = json.dumps(_load_dish_flower(), separators=(",", ":")).encode
 FLAGS_DIR = os.path.join(_BIN, "flags")
 _FLAG_CODE_RE = re.compile(r"^[a-z]{2}$")  # matches flag-icons' iso2-lowercase.svg naming
 
-PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYCALL__</title>
+PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYCALL__</title>
 <style>
  body{background:#0d1117;color:#c9d1d9;font-family:system-ui,sans-serif;margin:0;padding:14px}
  h1{font-size:18px;margin:0 0 10px;color:#58a6ff} h1 small{color:#8b949e;font-weight:normal}
@@ -350,6 +350,16 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYC
     9998) and the DX-confirm modal (9999) -- the two modals aren't expected
     to ever be open together, but if they somehow were, help should still
     win. ---- */
+ /* ---- Mode chooser: boot-time "select a mode" overlay (M0, see JS below).
+    .modalBox's shared 420px cap is fine for the DX-confirm paragraph but
+    cramped for a row of clickable mode buttons that only grows as JS8/
+    email modes land -- widen just this modal's box, same ID-scoped
+    override technique #helpModal already uses below, and give its buttons
+    more room than the compact Actions-widget .actionbtn default. ---- */
+ #modeChooser .modalBox{max-width:90vw;width:560px;padding:28px 32px}
+ #modeChooser .modalTitle{font-size:19px;margin-bottom:14px}
+ #modeChooserButtons.arow{gap:14px}
+ #modeChooserButtons .actionbtn{padding:14px 26px;font-size:15px;min-width:120px;border-radius:8px}
  #helpModal{z-index:10000}
  #helpModal .modalBox{max-width:92vw;width:920px;height:88vh;display:flex;
   flex-direction:column;padding:0}
@@ -453,7 +463,7 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>COTA — __MYC
 </style></head><body>
 <div id=newCountryGlow></div>
 <div id=newCountryBanner><div class=newCountryBannerTitle>✨ NEW COUNTRY ✨</div><div id=newCountryBannerBody class=newCountryBannerBody></div></div>
-<h1>\U0001F4FB COTA <small>— __MYCALL__ · __MYGRID__ · Mode: <span id=hMode>—</span> · <span id=hStatus>—</span></small> <a id=bpBanner href="https://bandpulse.net" target=_blank rel=noopener style="display:none" title="live HF band conditions via bandpulse.net — click to see all bands"><span class=bpSep>·</span><span id=bpPills class=bpPills></span></a> <span id=stale>⚠ STALE — rx-loop not updating</span></h1>
+<h1>\U0001F4FB SeeQ <small>— __MYCALL__ · __MYGRID__ · Mode: <span id=hMode>—</span> · <span id=hStatus>—</span></small> <a id=bpBanner href="https://bandpulse.net" target=_blank rel=noopener style="display:none" title="live HF band conditions via bandpulse.net — click to see all bands"><span class=bpSep>·</span><span id=bpPills class=bpPills></span></a> <span id=stale>⚠ STALE — rx-loop not updating</span></h1>
 <div id=cockpit>
  <div class=cpitem><span class=cpk>STATE</span><span class="cpv st-" id=cpState>—</span></div>
  <div class=cpitem><span class=cpk>CALLING</span><span class=cpv id=cpCalling title="where the current target is (DXCC-style prefix lookup, best-effort)">—</span></div>
@@ -692,7 +702,7 @@ chmod 600 ~/.config/cota/qrz.key</pre>
 <div id=helpModal class=modalOverlay style="display:none">
  <div class=modalBox>
   <div class=helpHead>
-   <div class=modalTitle>COTA help</div>
+   <div class=modalTitle>SeeQ help</div>
    <button id=helpClose class=helpClose title="close">✕</button>
   </div>
   <div class=helpTabs>
@@ -706,15 +716,15 @@ chmod 600 ~/.config/cota/qrz.key</pre>
     <ol>
      <li><b>Configure your station.</b> Copy <code>station.conf.example</code> to
       <code>station.conf</code> and edit every value for YOUR station (callsign,
-      grid, CAT port, rig model, audio device) — or run <code>bin/coa setup</code>
+      grid, CAT port, rig model, audio device) — or run <code>bin/seeq setup</code>
       for an interactive wizard that detects your hardware. <code>station.conf</code>
       is gitignored; your settings never leave this machine.</li>
-     <li><b>Preflight.</b> Run <code>bin/coa doctor</code> — checks the CAT port,
+     <li><b>Preflight.</b> Run <code>bin/seeq doctor</code> — checks the CAT port,
       audio source, clock sync, mixer calibration, and reads back the rig's actual
       dial frequency against your configured <code>DIAL_HZ</code>. Fix anything it
       flags before continuing.</li>
      <li><b>Start receiving.</b> Click "Start monitoring (RX only)" in the Actions
-      widget (or run <code>bin/coa start</code>) — this decodes and displays FT8
+      widget (or run <code>bin/seeq start</code>) — this decodes and displays FT8
       traffic but never transmits. Watch the Decodes and World map widgets fill in
       to confirm your receive chain works before you ever key up.</li>
      <li><b>Run one QSO.</b> Set the count to 1 QSO, click "Automatic CQ", then
@@ -1493,13 +1503,13 @@ function qrzAutoArm(){
  qrzAutoArmedAt=Date.now(); qrzAutoLastSync=null; qrzAutoLastRefresh=null;
  if(!qrzAutoHeartbeat) qrzAutoHeartbeat=setInterval(qrzAutoTick,QRZ_AUTO_HEARTBEAT_MS);
  qrzAutoTick();
- try{localStorage.setItem('coa-qrz-auto','1');}catch(e){}
+ try{localStorage.setItem('seeq-qrz-auto','1');}catch(e){}
 }
 function qrzAutoDisarm(){
  qrzAutoArmedAt=null;
  if(qrzAutoHeartbeat){ clearInterval(qrzAutoHeartbeat); qrzAutoHeartbeat=null; }
  qrzAutoSetStatus('');
- try{localStorage.removeItem('coa-qrz-auto');}catch(e){}
+ try{localStorage.removeItem('seeq-qrz-auto');}catch(e){}
 }
 let qrzSyncPolling=null;
 async function loadQrzStatus(){
@@ -1527,7 +1537,7 @@ async function loadQrzStatus(){
   if(qrzAutoInitPending && s.configured){
    qrzAutoInitPending=false;
    try{
-    if(localStorage.getItem('coa-qrz-auto')==='1'){ autoCk.checked=true; qrzAutoArm(); }
+    if(localStorage.getItem('seeq-qrz-auto')==='1'){ autoCk.checked=true; qrzAutoArm(); }
    }catch(e){}
   }
   if(s.syncing && !qrzSyncPolling){
@@ -2002,9 +2012,14 @@ async function loadModeRegistry(){
   renderModeChooserButtons(MODE_REGISTRY);
  }catch(e){}
 }
+function escapeHtml(s){
+ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 function bpPillsHtml(top){
- return top.map(b=>
-  `<span class="bpPill st-${b.state}" title="${b.name}: ${b.label} (score ${b.score})">${b.name}</span>`).join('');
+ return top.map(b=>{
+  const state=escapeHtml(b.state), name=escapeHtml(b.name), label=escapeHtml(b.label), score=escapeHtml(b.score);
+  return `<span class="bpPill st-${state}" title="${name}: ${label} (score ${score})">${name}</span>`;
+ }).join('');
 }
 async function loadBandPulse(){
  const banner=document.getElementById('bpBanner');
@@ -2225,10 +2240,10 @@ function flashTitle(text){
  setTimeout(stop, 30000);                   // safety cap regardless of focus
 }
 function doAlert(kind, text){
- console.log('[coa-alert]', kind, text);    // always logged — verifiable without a radio
+ console.log('[seeq-alert]', kind, text);    // always logged — verifiable without a radio
  if(window.Notification && Notification.permission==='granted'){
   try{
-   const n=new Notification('COTA — '+kind, {body:text});
+   const n=new Notification('SeeQ — '+kind, {body:text});
    // the OS notification daemon's default action ("Activate" on many Linux
    // desktops) fires this click event -- without a handler here it just
    // closes the notification and does nothing else. Bring the dashboard
@@ -2294,7 +2309,7 @@ function currentLayout(){
 }
 function saveLayout(){
  const layout=currentLayout();
- try{localStorage.setItem('coa-layout', JSON.stringify(layout));}catch(e){}
+ try{localStorage.setItem('seeq-layout', JSON.stringify(layout));}catch(e){}
  fetch('/layout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(layout)}).catch(()=>{});
 }
 function applyLayout(layout){
@@ -2316,7 +2331,7 @@ function applyLayout(layout){
 async function loadLayout(){
  let layout=null;
  try{ const r=await fetch('/layout'); if(r.ok){ const j=await r.json(); if(j&&j.widgets) layout=j; } }catch(e){}
- if(!layout){ try{ const c=localStorage.getItem('coa-layout'); if(c) layout=JSON.parse(c); }catch(e){} }
+ if(!layout){ try{ const c=localStorage.getItem('seeq-layout'); if(c) layout=JSON.parse(c); }catch(e){} }
  if(layout) applyLayout(layout);
 }
 function resetLayout(){
@@ -2327,7 +2342,7 @@ function resetLayout(){
  const dash=document.getElementById('dash');
  for(const k of order){ const el=document.querySelector(`.widget[data-key="${k}"]`); if(el) dash.appendChild(el); }
  setMapMode('auto');
- try{localStorage.removeItem('coa-layout');}catch(e){}
+ try{localStorage.removeItem('seeq-layout');}catch(e){}
  saveLayout();
 }
 function initWidgetChrome(){
@@ -3269,6 +3284,6 @@ if __name__ == "__main__":
             pass
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("127.0.0.1", PORT), H) as srv:
-        print(f"COTA dashboard: http://localhost:{PORT}"
+        print(f"SeeQ dashboard: http://localhost:{PORT}"
               + (" [COA_DRYRUN]" if DRYRUN else ""))
         srv.serve_forever()

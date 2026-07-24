@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""coa report — compact, read-only session report.
+"""seeq report — compact, read-only session report.
 
 Sources (all optional; missing files just mean zero counts, never an error):
   data/qso-attempts.jsonl   one line per LOGGED QSO (from bin/qso.py log_qso)
@@ -80,7 +80,7 @@ def main():
     logged = read_jsonl(QSO_LOG)
     last = logged[-1] if logged else None
 
-    print("=== COTA session report ===")
+    print("=== SeeQ session report ===")
     print(f"generated {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())}Z")
     print()
     if not qsos and not attempts and not logged:

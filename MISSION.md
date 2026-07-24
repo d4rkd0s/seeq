@@ -2,7 +2,10 @@
 
 > This is a historical build log (dated session notes from initial development), not
 > project documentation. For the current pitch, install steps, and architecture, see
-> [README.md](README.md).
+> [README.md](README.md). Entries below say "COTA"/"d4rkd0s/cota" because that was the
+> project's real name at the time — it was renamed to **SeeQ** on 2026-07-23
+> (`github.com/d4rkd0s/cota` now redirects to `github.com/d4rkd0s/seeq`). Left as-written
+> rather than rewritten, since this file is a log, not living docs.
 
 Mission (Logan, 2026-07-03): drive FT8 contacts through Claude, with a display Logan can
 watch: **waterfall + decode list + contact log + "next call"**. Start basic, grow.

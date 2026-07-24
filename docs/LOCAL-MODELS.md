@@ -1,6 +1,6 @@
-# Local Models: $0 Tinkering with COTA
+# Local Models: $0 Tinkering with SeeQ
 
-Running a local language model on your computer lets you hack on COTA for **$0 per hour** — no cloud cost, no API keys, complete privacy. Perfect for ham experimenters.
+Running a local language model on your computer lets you hack on SeeQ for **$0 per hour** — no cloud cost, no API keys, complete privacy. Perfect for ham experimenters.
 
 ## Why local models?
 
@@ -132,7 +132,7 @@ make test
 This runs:
 
 - Python syntax check (`py_compile`) on all `.py` files
-- Bash syntax check (`bash -n`) on all `.sh` files and `bin/coa`
+- Bash syntax check (`bash -n`) on all `.sh` files and `bin/seeq`
 - The unit test suite (`tools/test_sequencer.py`)
 
 If a local model wrote a patch and a test fails, **do not commit.** Fix the error, review the fix (don't re-feed it to the local model — re-read the broken code and understand what went wrong), and re-run `make test`.
@@ -232,5 +232,5 @@ If it says "cpu", you need to [install GPU support](https://github.com/ollama/ol
 - [Ollama docs](https://ollama.com)
 - [Qwen2.5-Coder model card](https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct)
 - [Deepseek-Coder model card](https://huggingface.co/deepseek-ai/deepseek-coder-33b-instruct)
-- COTA [docs/COST.md](COST.md) — why the project was built to have $0 runtime cost
-- COTA [agents/PREPROMPT.md](../agents/PREPROMPT.md) — safety rules that every agent reads
+- SeeQ [docs/COST.md](COST.md) — why the project was built to have $0 runtime cost
+- SeeQ [agents/PREPROMPT.md](../agents/PREPROMPT.md) — safety rules that every agent reads

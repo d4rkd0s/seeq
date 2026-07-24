@@ -177,7 +177,7 @@ class TestRunChangeover(unittest.TestCase):
 
     def test_boot_preflight_failure_hard_aborts(self):
         # e.g. the CAT port has physically vanished -- same scenario as the
-        # real disconnect hit earlier this session (bin/coa's own preflight
+        # real disconnect hit earlier this session (bin/seeq's own preflight
         # caught it the same way).
         ft8 = FakePipeline(preflight_ok=False, preflight_detail="CAT port missing (/dev/ttyUSB0)")
         ok, detail = mode_switch.run_changeover(
@@ -190,7 +190,7 @@ class TestRunChangeover(unittest.TestCase):
         self.assertFalse(os.path.exists(self.active_mode_path))
 
     def test_boot_does_not_fail_if_target_pipeline_already_running(self):
-        # coa start's unconditional rx-loop autostart may have already beat
+        # seeq start's unconditional rx-loop autostart may have already beat
         # the changeover to it -- preflight() must not treat "already
         # running" as a failure (start() is already a safe no-op for that).
         ft8 = FakePipeline(running=True)

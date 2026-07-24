@@ -532,7 +532,7 @@ def write_session_report(t_start, t_end, args, completed, session_qsos, session_
         goal = (f"{args.minutes:g} min budget" if args.minutes
                 else f"{args.max_qsos} QSO(s)")
         lines = []
-        lines.append("=== COTA chase session report ===")
+        lines.append("=== SeeQ chase session report ===")
         lines.append(f"start: {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(t_start))}Z")
         lines.append(f"end:   {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(t_end))}Z"
                      f"  ({(t_end - t_start) / 60:.1f} min elapsed)")

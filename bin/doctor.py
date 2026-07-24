@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""coa doctor — non-interactive preflight diagnostics with fix-it hints.
+"""seeq doctor — non-interactive preflight diagnostics with fix-it hints.
 
 Read-only: never opens the CAT serial port, never keys PTT, never starts
 audio capture. Existence/presence checks only. Prints OK/WARN/FAIL + a
@@ -13,6 +13,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "bin"))
 import station_config
+import band_plan
 
 RESULTS = []  # (status, name, detail, remedy)
 
@@ -67,7 +68,7 @@ def check_station_conf():
     path = os.path.join(ROOT, "station.conf")
     if not os.path.exists(path):
         check("FAIL", "station.conf missing",
-              remedy="cp station.conf.example station.conf, then edit it (or run: coa setup)")
+              remedy="cp station.conf.example station.conf, then edit it (or run: seeq setup)")
         return {}
     cfg = station_config.load(path)
     if not cfg:
@@ -82,7 +83,7 @@ def check_station_conf():
         placeholders.append("MYGRID")
     if placeholders:
         check("WARN", f"station.conf has placeholder value(s): {', '.join(placeholders)}",
-              remedy="edit station.conf (or run: coa setup) with your real callsign/grid")
+              remedy="edit station.conf (or run: seeq setup) with your real callsign/grid")
     else:
         check("OK", f"callsign/grid configured ({cfg.get('MYCALL')} {cfg.get('MYGRID')})")
     return cfg
@@ -91,7 +92,7 @@ def check_station_conf():
 def check_cat_port(cfg):
     port = cfg.get("CAT_PORT")
     if not port:
-        check("WARN", "CAT_PORT not set in station.conf", remedy="run: coa setup")
+        check("WARN", "CAT_PORT not set in station.conf", remedy="run: seeq setup")
         return
     if os.path.exists(port):
         check("OK", f"CAT port exists ({port})")
@@ -103,7 +104,7 @@ def check_cat_port(cfg):
 def check_audio_source(cfg):
     source = cfg.get("PA_SOURCE")
     if not source:
-        check("WARN", "PA_SOURCE not set in station.conf", remedy="run: coa setup")
+        check("WARN", "PA_SOURCE not set in station.conf", remedy="run: seeq setup")
         return
     r = run(["pactl", "list", "short", "sources"])
     if r.returncode != 0:
@@ -115,7 +116,18 @@ def check_audio_source(cfg):
         check("OK", f"audio source present ({source})")
     else:
         check("FAIL", f"audio source not found ({source})",
-              remedy="pactl list short sources — update PA_SOURCE in station.conf (or run: coa setup)")
+              remedy="pactl list short sources — update PA_SOURCE in station.conf (or run: seeq setup)")
+
+
+def check_fcc_compliance(cfg):
+    """Strict Part 97 gate: callsign format, band/frequency privileges for
+    LICENSE_CLASS, and power caps. Hard FAIL (not WARN) on any violation --
+    same severity as a missing CAT port."""
+    if not cfg:
+        return
+    ok, results = band_plan.verify(cfg)
+    for r_ok, detail in results:
+        check("OK" if r_ok else "FAIL", detail)
 
 
 def check_disk_space():
@@ -138,13 +150,14 @@ def check_disk_space():
 
 
 def main():
-    print("=== COTA doctor ===")
+    print("=== SeeQ doctor ===")
     check_ntp()
     check_tools()
     check_python_numpy()
     cfg = check_station_conf()
     check_cat_port(cfg)
     check_audio_source(cfg)
+    check_fcc_compliance(cfg)
     check_disk_space()
 
     hard_fail = False

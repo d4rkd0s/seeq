@@ -305,10 +305,12 @@ def run_header_status_label(tx, chaser_running, rxloop_running):
 
 
 def extract_bp_pills_html_js():
-    """Slice bpPillsHtml() verbatim out of dashboard.py's rendered PAGE,
-    between its declaration and loadBandPulse() which consumes it."""
+    """Slice escapeHtml()+bpPillsHtml() verbatim out of dashboard.py's
+    rendered PAGE, between escapeHtml's declaration (bpPillsHtml calls it
+    to neutralize hostile fields from bandpulse.net's live API response)
+    and loadBandPulse() which consumes bpPillsHtml's output."""
     page = _dashboard_module().PAGE
-    start = page.index("function bpPillsHtml(")
+    start = page.index("function escapeHtml(")
     end = page.index("\nasync function loadBandPulse(", start)
     snippet = page[start:end]
     assert "bpPill" in snippet, (
@@ -769,6 +771,31 @@ class TestBpPillsHtml(unittest.TestCase):
 
     def test_empty_list_renders_nothing(self):
         self.assertEqual(run_bp_pills_html([]), "")
+
+    def test_hostile_band_name_is_escaped_not_rendered_as_html(self):
+        # band name/state/label come from bandpulse.net's live API response --
+        # a bad field must render as inert text, never break out into markup.
+        html = run_bp_pills_html([
+            {"id": "40m", "name": "<img src=x onerror=alert(1)>", "state": "green",
+             "label": "Open", "score": 88},
+        ])
+        self.assertNotIn("<img", html)
+        self.assertIn("&lt;img", html)
+
+    def test_hostile_state_cannot_break_out_of_class_attribute(self):
+        html = run_bp_pills_html([
+            {"id": "40m", "name": "40 m", "state": 'green"><script>alert(1)</script>',
+             "label": "Open", "score": 88},
+        ])
+        self.assertNotIn("<script>", html)
+        self.assertNotIn('"><script>', html)
+
+    def test_hostile_label_cannot_break_out_of_title_attribute(self):
+        html = run_bp_pills_html([
+            {"id": "40m", "name": "40 m", "state": "green",
+             "label": '"><script>alert(1)</script>', "score": 88},
+        ])
+        self.assertNotIn("<script>", html)
 
 
 class TestPanViewBox(unittest.TestCase):

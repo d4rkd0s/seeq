@@ -1,4 +1,4 @@
-# Contributing to COTA
+# Contributing to SeeQ
 
 **Session hygiene is the lever.** Our development cost was 97% cache-reads because one conversation carried all context. For maintenance and features, keep sessions scoped and short — let the repo's docs (README, CLAUDE.md, ROADMAP, PREPROMPT) carry the knowledge instead of your chat history. **A scoped one-hour Haiku session costs cents; a marathon frontier-model session costs dollars per hour.**
 
@@ -31,7 +31,7 @@
    - [CLAUDE.md](CLAUDE.md) — 2 min orientation
    - [agents/PREPROMPT.md](agents/PREPROMPT.md) — safety contract
    - Relevant skill file from `~/Radio/skills/` if you're touching hardware/audio
-2. **State your scope out loud** (in the session opening prompt): "Add a `--verbose` flag to `coa` that prints per-slot decodes."
+2. **State your scope out loud** (in the session opening prompt): "Add a `--verbose` flag to `seeq` that prints per-slot decodes."
 3. **Check the test gate** (`python3 tools/test_sequencer.py`) to see what's already covered.
 
 ## Workflow: write code, then test
@@ -41,13 +41,13 @@
 
 # 2. Syntax check
 python3 -m py_compile bin/*.py tools/*.py
-bash -n bin/*.sh bin/coa
+bash -n bin/*.sh bin/seeq
 
 # 3. Run unit tests
 python3 tools/test_sequencer.py
 
 # 4. Manual integration test if it's qso.py or state-machine work
-COA_DRYRUN=1 bin/coa start  # dry-run, no TX
+COA_DRYRUN=1 bin/seeq start  # dry-run, no TX
 # (stop with Ctrl-C)
 
 # 5. Commit if all tests pass
@@ -74,7 +74,7 @@ If you're using Claude Code / a Claude subscription:
 
 ```bash
 # At the start of your session, note:
-# - Task: "Add verbose flag to coa"
+# - Task: "Add verbose flag to seeq"
 # - Model: haiku
 # - Expected time: <30 min
 # - Session token estimate: ~3k (from CLAUDE.md alone, plus your edits)

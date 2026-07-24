@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""coa setup — interactive first-run wizard: detect hardware, write station.conf.
+"""seeq setup — interactive first-run wizard: detect hardware, write station.conf.
 
 READ-ONLY detection only (pactl/arecord/ls/rigctl -l never open the radio or a
 port). The only place this script can touch the rig is the final, opt-in
 "test CAT now?" step, and only if the user explicitly answers yes — this
 script never keys PTT and never runs qso.py.
 
-Usage: coa setup   (or: python3 bin/setup.py [--output PATH] [--example PATH])
+Usage: seeq setup   (or: python3 bin/setup.py [--output PATH] [--example PATH])
 """
 import os
 import re
@@ -201,7 +201,7 @@ def apply_values(lines, values):
         out.append(line)
     missing = [k for k in values if k not in seen]
     if missing:
-        out.append("\n# added by coa setup\n")
+        out.append("\n# added by seeq setup\n")
         for k in missing:
             out.append(f"{k}={values[k]}\n")
     return out
@@ -214,7 +214,7 @@ def main():
     ap.add_argument("--example", default=os.path.join(ROOT, "station.conf.example"))
     args = ap.parse_args()
 
-    print("=== COTA setup wizard ===")
+    print("=== SeeQ setup wizard ===")
     print("Detection only (pactl/arecord/ls/rigctl -l) — nothing here touches the radio.")
     print()
 
@@ -285,12 +285,12 @@ def main():
         except (OSError, subprocess.TimeoutExpired) as e:
             print(f"  rigctl failed to run: {e}")
     else:
-        print("  skipped — run 'coa doctor' any time to re-check without touching the radio.")
+        print("  skipped — run 'seeq doctor' any time to re-check without touching the radio.")
 
     print()
-    print("next: coa selftest   (offline decode chain sanity check)")
-    print("      coa doctor     (full preflight diagnostics)")
-    print("      coa start      (receive-only)")
+    print("next: seeq selftest   (offline decode chain sanity check)")
+    print("      seeq doctor     (full preflight diagnostics)")
+    print("      seeq start      (receive-only)")
 
 
 if __name__ == "__main__":

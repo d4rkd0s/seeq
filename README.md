@@ -1,8 +1,9 @@
-# COTA — Claude on the Air: a Claude-built FT8 station for Linux hams 📻
+# SeeQ — a Claude-built, attended FT8 station for Linux hams 📻
 
-**A digital on-the-air system for HAM radio, built by Claude.**
+**A digital on-the-air system for HAM radio, built by Claude — you're always the operator,
+Claude never keys the transmitter.** *(SeeQ, as in "CQ" — formerly named COTA.)*
 
-[![test](https://github.com/d4rkd0s/cota/actions/workflows/test.yml/badge.svg)](https://github.com/d4rkd0s/cota/actions/workflows/test.yml)
+[![test](https://github.com/d4rkd0s/seeq/actions/workflows/test.yml/badge.svg)](https://github.com/d4rkd0s/seeq/actions/workflows/test.yml)
 
 **Decode, chase, and log FT8 QSOs from the command line**, with a live browser
 dashboard: waterfall, offline world map, decode list, QSO log, and next-call
@@ -22,14 +23,14 @@ by this code while the control operator watched.
 frontier model actually cost, and how to hack on it for cents or for free with
 local models).
 
-![COTA dashboard, idle — cockpit, logbook, decode table, world map](screenshots/dashboard-idle.png)
-![COTA dashboard, mid-QSO — live TX, red cockpit, calling location, TX arc on the map](screenshots/dashboard-calling.png)
+![SeeQ dashboard, idle — cockpit, logbook, decode table, world map](screenshots/dashboard-idle.png)
+![SeeQ dashboard, mid-QSO — live TX, red cockpit, calling location, TX arc on the map](screenshots/dashboard-calling.png)
 
 ## ⚠️ Safety model — read this first
 
 **Claude does not transmit. Ever.** Claude built this software; it does not
 operate it. The licensed control operator runs the commands that operate the
-station (`coa start`, `coa chase N`, …) — every key-up on the air is a human
+station (`seeq start`, `seeq chase N`, …) — every key-up on the air is a human
 decision, executed by human-run code, never an AI acting on its own.
 
 **You must be a licensed radio amateur, and you are the control operator.**
@@ -52,7 +53,7 @@ Built-in rails, all enforced in code:
   absolute per-session TX frame budget.
 - **No same-day dupes**, courtesy 73, even/odd slot discipline, clear-offset
   (split) calling, and breather pauses — see the etiquette section below.
-- Ctrl-C, `coa stop`, and the watchdog all force-release PTT.
+- Ctrl-C, `seeq stop`, and the watchdog all force-release PTT.
 
 **QRP / duty-cycle warning:** FT8 is a 100%-duty-cycle mode for ~13 s per
 frame, and a chase session keys many frames. Small rigs like the G90 run hot —
@@ -80,18 +81,18 @@ sudo apt-get install wsjtx sox pulseaudio-utils python3-numpy libhamlib-utils
 ## Quick start
 
 ```bash
-bin/coa setup          # interactive wizard: detect hardware, write station.conf
-bin/coa selftest       # offline decode-chain check — no radio needed
-bin/coa doctor         # preflight diagnostics with fix-hints
-bin/coa start          # preflight checks, RX loop, dashboard at http://localhost:8074
-bin/coa chase 3        # answer CQs until 3 QSOs are logged — stay at the radio!
-bin/coa chase 20m      # ...or chase for 20 minutes
-bin/coa status         # one-screen station status
-bin/coa report         # compact session report: QSOs, attempts, per-band
-bin/coa stop           # stop everything, force PTT release
+bin/seeq setup          # interactive wizard: detect hardware, write station.conf
+bin/seeq selftest       # offline decode-chain check — no radio needed
+bin/seeq doctor         # preflight diagnostics with fix-hints
+bin/seeq start          # preflight checks, RX loop, dashboard at http://localhost:8074
+bin/seeq chase 3        # answer CQs until 3 QSOs are logged — stay at the radio!
+bin/seeq chase 20m      # ...or chase for 20 minutes
+bin/seeq status         # one-screen station status
+bin/seeq report         # compact session report: QSOs, attempts, per-band
+bin/seeq stop           # stop everything, force PTT release
 ```
 
-`coa start` alone is receive-only and needs no attention: it decodes, plots,
+`seeq start` alone is receive-only and needs no attention: it decodes, plots,
 and suggests — but never transmits. Full per-distro install steps (including
 Raspberry Pi OS) are in [docs/INSTALL.md](docs/INSTALL.md).
 

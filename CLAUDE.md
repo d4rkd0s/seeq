@@ -1,11 +1,17 @@
-# COTA — Claude on the Air: FT8 station
+# SeeQ — FT8 station (the name's a nod to ham radio's universal "CQ")
 
 **Project:** Command-line FT8 chaser + live dashboard for Xiegu G90 + DE-19 interface. Runtime: $0 (no AI, no API keys). Tinkering: cents/hour with Haiku or free with local models.
+
+*Renamed from COTA ("Claude on the Air") on 2026-07-23 — that name implied Claude does the
+transmitting, which was never true: SeeQ is claude-less at runtime, Logan is always the
+control operator. The GitHub repo, the `bin/coa` entrypoint (now `bin/seeq`, with `coa` kept
+as a back-compat alias), and every doc were updated together. Old links to
+`github.com/d4rkd0s/cota` still resolve — GitHub redirects renamed repos automatically.*
 
 ## Project structure
 
 ```
-bin/          coa (entrypoint), rx-loop.sh, dashboard.py, qso.py, world_map.py
+bin/          seeq (entrypoint), rx-loop.sh, dashboard.py, qso.py, world_map.py
 tools/        ft8synth.py, test_sequencer.py, jt9_wisdom.dat (reference)
 agents/       PREPROMPT.md (safety), role-specific pre-prompts
 data/         slot.wav, decodes/YYYY-MM-DD/HH.jsonl (rotated decode log), status.json
@@ -61,7 +67,7 @@ python3 tools/test_qrz.py               # Unit tests for ADIF/QRZ-API/logbook me
 python3 tools/test_pipeline.py          # Unit tests for station.conf, decode storage, report, GFSK synth
 python3 tools/test_dashboard_js.py      # Unit tests for dashboard.py's embedded JS (callCountry), run via Node
 python3 -m py_compile bin/*.py tools/*.py
-bash -n bin/*.sh bin/coa                # Bash syntax check
+bash -n bin/*.sh bin/seeq                # Bash syntax check
 # or just: make test — runs all of the above (also what CI runs)
 ```
 
@@ -70,9 +76,11 @@ bash -n bin/*.sh bin/coa                # Bash syntax check
 ## Releasing
 
 **Every push of new code gets a version tag + GitHub Release** — don't let commits pile up
-unreleased. Current: **v1.1.0** (v1.0.0 was the first tagged release).
+unreleased. Don't hardcode "current version" here — it goes stale (this line once said v1.1.0
+while the repo was already at v1.9.0). Check the real current version with `git describe --tags`
+or https://github.com/d4rkd0s/seeq/releases before bumping.
 
-1. Test gate first: `python3 -m py_compile bin/*.py tools/*.py`, `bash -n bin/*.sh bin/coa`,
+1. Test gate first: `python3 -m py_compile bin/*.py tools/*.py`, `bash -n bin/*.sh bin/seeq`,
    `python3 tools/test_sequencer.py` (must stay green).
 2. **Secrets/callsign sweep before anything touches origin** — this repo once had the operator's
    real callsign, grid locator, and a live `station.conf` exposed on GitHub for about a week
@@ -95,9 +103,9 @@ unreleased. Current: **v1.1.0** (v1.0.0 was the first tagged release).
 
 ```bash
 cp station.conf.example station.conf    # Edit EVERY value: callsign, grid, rig, audio device
-bin/coa start                           # RX only, no TX — preflight + dashboard at :8074
-bin/coa chase 5                         # Answer CQs, log 5 QSOs — stay at radio!
-bin/coa stop                            # Force PTT release + shutdown
+bin/seeq start                           # RX only, no TX — preflight + dashboard at :8074
+bin/seeq chase 5                         # Answer CQs, log 5 QSOs — stay at radio!
+bin/seeq stop                            # Force PTT release + shutdown
 ```
 
 ## References

@@ -1,6 +1,6 @@
-# What COTA costs to run: $0/hour. Really.
+# What SeeQ costs to run: $0/hour. Really.
 
-**COTA needs no AI, no API key, no account, and no internet (beyond NTP time sync) to
+**SeeQ needs no AI, no API key, no account, and no internet (beyond NTP time sync) to
 operate.** Every part of the QSO loop is codified logic, not a language model:
 
 | Function        | What does it                                      | Tokens |
@@ -16,13 +16,13 @@ operate.** Every part of the QSO loop is codified logic, not a language model:
 This is by design, not accident. An LLM has no place inside a 15-second hard-realtime
 FT8 slot: it is too slow, too expensive, and less correct than a state machine that
 encodes the operating rules exactly. Claude **built** this program; Claude does not
-**run** it. Clone, edit `station.conf`, run `coa chase 5` — total marginal cost: your
+**run** it. Clone, edit `station.conf`, run `seeq chase 5` — total marginal cost: your
 electricity.
 
 ## So where did the money go?
 
 Development. Measured from this project's actual session logs (July 2026): building
-COTA — protocol study, the chaser engine, the map dashboard, debugging RFI and USB
+SeeQ — protocol study, the chaser engine, the map dashboard, debugging RFI and USB
 gremlins live at the bench — burned an API-equivalent **~$0.14/minute (~$8/hour)** on a
 frontier model, ~97% of it prompt-cache reads from working in one giant multi-day
 conversation. A Claude subscription capped this well below raw API price.

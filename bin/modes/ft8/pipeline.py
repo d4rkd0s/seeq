@@ -92,7 +92,7 @@ def sanity_check():
 def preflight():
     """(ok, detail) -- confirms hardware is ready to start this mode. Does
     NOT check is_running(): if this mode's own process already happens to be
-    running (e.g. coa start's unconditional rx-loop autostart beat the
+    running (e.g. seeq start's unconditional rx-loop autostart beat the
     changeover to it), that's not a failure -- start() is already a no-op in
     that case, same as dashboard.py's existing _action_rx_start. Used by
     bin/mode_switch.py's changeover for a boot (no prior mode) target."""

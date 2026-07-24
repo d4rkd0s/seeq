@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""coa logsync — idempotent QRZ Logbook upload. No AI, cron-able, RX-only in
+"""seeq logsync — idempotent QRZ Logbook upload. No AI, cron-able, RX-only in
 spirit: this never touches the rig, it only reads the ADIF log and talks to
 QRZ over HTTPS (via curl).
 

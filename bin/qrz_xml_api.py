@@ -25,7 +25,7 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 
 API_URL = "https://xmldata.qrz.com/xml/current/"
-USER_AGENT = "COTA/1.6 (+https://github.com/d4rkd0s/cota)"
+USER_AGENT = "SeeQ/1.6 (+https://github.com/d4rkd0s/seeq)"
 
 
 def _get(params, timeout=20):

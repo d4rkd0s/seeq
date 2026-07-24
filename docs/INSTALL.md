@@ -1,8 +1,8 @@
-# INSTALL — get COTA on the air in under 30 minutes
+# INSTALL — get SeeQ on the air in under 30 minutes
 
 This is the step-by-step path from a fresh Linux install to a first FT8
 decode. No AI is involved at any point — everything below is plain packages,
-`coa setup`, and the WSJT-X command-line tools.
+`seeq setup`, and the WSJT-X command-line tools.
 
 ## 1. Install packages
 
@@ -49,12 +49,12 @@ Notes specific to the Pi:
 ## 2. Clone and configure
 
 ```bash
-git clone https://github.com/d4rkd0s/cota.git
+git clone https://github.com/d4rkd0s/seeq.git
 cd cota
-bin/coa setup
+bin/seeq setup
 ```
 
-`coa setup` is an interactive wizard. It only ever *detects* hardware
+`seeq setup` is an interactive wizard. It only ever *detects* hardware
 (`pactl list short sources`, `arecord -l`, `/dev/serial/by-id/`, `rigctl -l`)
 — it never opens the CAT port or keys the radio unless you explicitly say
 yes to its final, optional "test CAT now?" step. It will:
@@ -77,7 +77,7 @@ edit every value yourself (the comments explain each one).
 ## 3. Prove the decode chain — no radio required
 
 ```bash
-bin/coa selftest
+bin/seeq selftest
 ```
 
 This synthesizes a reference FT8 frame entirely offline (`ft8code` +
@@ -89,7 +89,7 @@ station wiring.
 ## 4. Full preflight
 
 ```bash
-bin/coa doctor
+bin/seeq doctor
 ```
 
 Non-interactive diagnostics: NTP sync, required tools on `PATH`, Python/numpy,
@@ -101,13 +101,13 @@ devices exist. Exits nonzero if anything hard-fails.
 ## 5. Go receive-only
 
 ```bash
-bin/coa start          # preflight + RX loop + dashboard at http://localhost:8074
-bin/coa status         # one-screen station status
-bin/coa report         # compact session report: QSOs, attempts, per-band
-bin/coa stop           # stop everything, force PTT release
+bin/seeq start          # preflight + RX loop + dashboard at http://localhost:8074
+bin/seeq status         # one-screen station status
+bin/seeq report         # compact session report: QSOs, attempts, per-band
+bin/seeq stop           # stop everything, force PTT release
 ```
 
-`coa start` alone never transmits — it decodes, plots the waterfall, and
+`seeq start` alone never transmits — it decodes, plots the waterfall, and
 suggests targets. When you're ready to actually work stations, see the
 Quick start and safety model in [README.md](../README.md) before running
-`coa chase`.
+`seeq chase`.

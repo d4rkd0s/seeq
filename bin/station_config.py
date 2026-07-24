@@ -32,7 +32,7 @@ def save_keys(updates, path=None):
     """Rewrite station.conf in place, replacing each existing KEY=... line's
     value with str(updates[KEY]) while preserving everything else about that
     line (inline comment, spacing before '#'). Keys with no existing line are
-    appended. Stays valid shell (bin/coa dot-sources this same file), so
+    appended. Stays valid shell (bin/seeq dot-sources this same file), so
     values must not contain '#' or a newline — callers pass plain numbers/
     short tokens (band names, Hz, watts), never free text."""
     p = path or CONF_PATH

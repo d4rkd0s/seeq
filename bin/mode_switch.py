@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""coa mode switch <name> -- the sequenced, polled mode-changeover state
+"""seeq mode switch <name> -- the sequenced, polled mode-changeover state
 machine (M0). Per Logan's explicit instruction, switching modes is a
 deliberate operational changeover, not an instant swap: stop the current
 mode fully, WAIT until it's actually confirmed stopped, sanity-check, only
@@ -63,7 +63,7 @@ def run_changeover(target_mode, poll_timeout_s=DEFAULT_POLL_TIMEOUT_S, dryrun=Fa
     """(ok, detail). Writes staged progress to status_path at every stage
     transition; writes active_mode_path only on full success. A failure at
     any stage writes stage="error" and returns False without ever touching
-    active_mode_path -- the caller (dashboard/coa) must treat that as "the
+    active_mode_path -- the caller (dashboard/seeq) must treat that as "the
     switch did not happen," not partial progress."""
     status_path = status_path or STATUS_PATH
     active_mode_path = active_mode_path or ACTIVE_MODE_PATH

@@ -1,7 +1,7 @@
 # M0 (mode abstraction) — open questions before implementation
 
 Companion to [MODES-ROADMAP.md](MODES-ROADMAP.md) Phase M0. Each question below is a
-real fork I found while reading `bin/coa`, `bin/dashboard.py`, and `bin/qso.py` to scope
+real fork I found while reading `bin/seeq`, `bin/dashboard.py`, and `bin/qso.py` to scope
 the work — not filler. Each has my recommendation and *why*, plus a blank for your
 answer. Fill in as many as you want, in any order; leave the rest blank and I'll go with
 the recommendation. I won't start writing M0 code until I've checked this file for your
@@ -33,7 +33,7 @@ read-back, PTT), and currently untouched by any of this session's map/UI work. M
 
 **My recommendation: (b) wrap.** Zero risk to the frozen TX-safety chain, and it still
 fully satisfies "prove the abstraction with a real mode" — the abstraction is about
-*dashboard/coa's* relationship to a mode, not about where `qso.py`'s internals live. An
+*dashboard/seeq's* relationship to a mode, not about where `qso.py`'s internals live. An
 actual code-move (if ever wanted) becomes its own separate, later, non-M0 decision.
 
 **Your answer:** ___________________________________________________
@@ -57,7 +57,7 @@ specifically so two programs don't fight over the raw serial port.
   arguably a cleaner invariant. But it means changing how FT8's frequency read-back and
   PTT calls work, which is exactly the frozen-code path.
 - **(b) Leave FT8 on direct per-call `rigctl` for M0`** — don't touch the frozen path
-  speculatively. M0's sanity check defines "CAT free" the way `bin/coa`'s existing
+  speculatively. M0's sanity check defines "CAT free" the way `bin/seeq`'s existing
   `preflight()` already does (`[ -e "$CAT_PORT" ]` + no process holding it). Revisit
   `rigctld` concretely when M2 (email) actually gets built, since Pat/ardopcf's need
   for it is real and immediate, vs. JS8's is still unconfirmed (Q from
@@ -96,30 +96,30 @@ thing more than an engineering one, which is why I'm asking rather than just pic
 yes a 30-45 sec swap, so the HAM is deliberate in mode switching
 ---
 
-## Q4 — Does `coa start` (CLI) need the boot chooser too, or is that dashboard-only?
+## Q4 — Does `seeq start` (CLI) need the boot chooser too, or is that dashboard-only?
 
-**What I found:** `coa start` today is non-interactive/scriptable — it runs `preflight`,
-then unconditionally spawns `dashboard.py` **and** `rx-loop.sh` (i.e., today `coa start`
+**What I found:** `seeq start` today is non-interactive/scriptable — it runs `preflight`,
+then unconditionally spawns `dashboard.py` **and** `rx-loop.sh` (i.e., today `seeq start`
 = "dashboard up + FT8 RX running," no prompt, no mode concept). Under M0, RX-loop
-start-up becomes FT8-mode-specific (`bin/modes/ft8/pipeline.py`), so `coa start`
+start-up becomes FT8-mode-specific (`bin/modes/ft8/pipeline.py`), so `seeq start`
 auto-starting it unconditionally would silently pick FT8 for you — exactly the "silent
 default" your boot-chooser instruction was against.
 
 **The fork:**
-- **(a) Chooser is dashboard-only.** `coa start` changes to: preflight (hardware/audio/
+- **(a) Chooser is dashboard-only.** `seeq start` changes to: preflight (hardware/audio/
   clock only, no mode-specific checks) + spawn `dashboard.py` alone, landing on the
   "Welcome — select a mode to begin" screen; **no pipeline auto-starts**. Mode selection
   (and thus starting any mode's pipeline) only happens by picking one in the browser,
-  which runs the same M0.3 changeover. `coa start` stays scriptable/non-interactive.
-- **(b) `coa start` also prompts.** The CLI itself gains an interactive mode-select step
-  (or a required `coa start --mode ft8` flag), so a fully headless `coa start` either
+  which runs the same M0.3 changeover. `seeq start` stays scriptable/non-interactive.
+- **(b) `seeq start` also prompts.** The CLI itself gains an interactive mode-select step
+  (or a required `seeq start --mode ft8` flag), so a fully headless `seeq start` either
   blocks on input or fails without an explicit mode argument — breaking any existing
-  scripted/cron use of plain `coa start`.
+  scripted/cron use of plain `seeq start`.
 
-**My recommendation: (a).** Keeps `coa start` scriptable (matches `coa logsync`/`coa
+**My recommendation: (a).** Keeps `seeq start` scriptable (matches `seeq logsync`/`seeq
 report`'s existing non-interactive design), and "app boot shows a chooser" is naturally
 a statement about the dashboard (the thing with a UI to show a chooser *in*), not the
-shell entrypoint. This does mean `coa start` alone will no longer get you FT8 RX running
+shell entrypoint. This does mean `seeq start` alone will no longer get you FT8 RX running
 the way it does today — you'll always pick the mode in the browser afterward.
 
 **Your answer:** ___________________________________________________
@@ -127,19 +127,19 @@ I don't fully get this one so let's do a.
 but if you think this is still worthy to look into, add to later in the roadmap 
 ---
 
-## Q5 — Does `coa chase N` still work as a direct CLI shortcut?
+## Q5 — Does `seeq chase N` still work as a direct CLI shortcut?
 
-**What I found:** `coa chase N` today bypasses the dashboard/UI entirely — it calls
+**What I found:** `seeq chase N` today bypasses the dashboard/UI entirely — it calls
 `"$0" start` (preflight + spawn dashboard/rx-loop) then runs `qso.py` directly in the
 foreground, Ctrl-C-safe (`trap 'unkey; ...' INT TERM`). It's a fast, scriptable, terminal-
 only path — no browser needed.
 
 **The fork:**
-- **(a) Keep `coa chase N` exactly as-is**, unchanged by M0 — it's a direct CLI
+- **(a) Keep `seeq chase N` exactly as-is**, unchanged by M0 — it's a direct CLI
   operator tool, not "the app," so the deliberate-changeover/chooser rules (which are
   about *mode switching* in a running system with a UI) don't apply to it. It implicitly
   always means FT8 chasing, same as today.
-- **(b) Route `coa chase N` through `coa mode switch ft8` first**, so even a quick
+- **(b) Route `seeq chase N` through `seeq mode switch ft8` first**, so even a quick
   terminal chase gets the full polled stop-current/sanity-check/preflight sequence
   before running — consistent with every other path into a mode, but adds real wall-
   clock delay (per Q3) to a command you may want to fire off fast.

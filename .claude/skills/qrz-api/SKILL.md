@@ -1,6 +1,6 @@
 ---
 name: qrz-api
-description: Working with the QRZ Logbook API (logbook.qrz.com/api) — request/response format, wire quirks, confirmation semantics, and where COTA's implementation lives. Read before touching bin/qrz_api.py, bin/logsync.py, bin/qrz_fetch.py, or bin/logbook.py.
+description: Working with the QRZ Logbook API (logbook.qrz.com/api) — request/response format, wire quirks, confirmation semantics, and where SeeQ's implementation lives. Read before touching bin/qrz_api.py, bin/logsync.py, bin/qrz_fetch.py, or bin/logbook.py.
 ---
 
 # Skill: QRZ Logbook API
@@ -12,7 +12,7 @@ an "XML Logbook Data" subscription; the key lives at
 `~/.config/cota/qrz.key` (chmod 600, **outside the repo, never committed —
 and never hardcode or echo it in code, tests, logs, or docs**).
 
-## Where things live in COTA
+## Where things live in SeeQ
 
 | File | Role |
 |---|---|
@@ -57,7 +57,7 @@ generic agents.
 Both stations must log the QSO; QRZ auto-confirms when **both callsigns,
 band, mode, and UTC time within ±30 minutes** agree. `app_qrzlog_status`:
 **`C` = Confirmed (the only confirmed value)**; `N` = not, `2` = requested,
-`S` = request seen, `R` = rejected, `A` = reserved. COTA's exact FT8 slot
+`S` = request seen, `R` = rejected, `A` = reserved. SeeQ's exact FT8 slot
 timestamps confirm fast; hand-entered times >30 min off never auto-confirm
 and need manual resolution on qrz.com. `bin/logbook.py` mirrors the same
 ±30 min window (`tol_s=1800`).
@@ -67,5 +67,5 @@ and need manual resolution on qrz.com. `bin/logbook.py` mirrors the same
 - Reading (FETCH/STATUS) is safe anytime; it never touches the rig.
 - Don't loop FETCH aggressively — page politely, cache in
   `data/qrz-logbook.json`, let the dashboard read the cache.
-- DELETE is irreversible; nothing in COTA calls it, keep it that way
+- DELETE is irreversible; nothing in SeeQ calls it, keep it that way
   without the operator's explicit ask.

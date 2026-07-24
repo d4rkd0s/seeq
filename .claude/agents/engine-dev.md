@@ -9,7 +9,7 @@ tools:
   - Bash
 ---
 
-# COTA Engine Developer
+# SeeQ Engine Developer
 
 **Scope:** `bin/qso.py` sequencer, FT8 protocol logic (`tools/ft8synth.py`), state machine, RX pipeline timing. Full feature work; higher cost model because correctness is critical.
 

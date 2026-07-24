@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a problem with COTA station control
+about: Report a problem with SeeQ station control
 title: "[BUG] "
 labels: bug
 assignees: ''
@@ -35,10 +35,10 @@ What you expected to happen.
 
 ## Diagnostic output
 
-Please run `./bin/coa doctor` and paste the output:
+Please run `./bin/seeq doctor` and paste the output:
 
 ```
-<paste coa doctor output here>
+<paste seeq doctor output here>
 ```
 
 ## Logs
@@ -47,7 +47,7 @@ If the error involves the chaser or RX loop, paste the last 20 lines of:
 
 - `data/rx-loop.log` (RX decoding)
 - `data/dashboard.log` (UI server)
-- `data/qso.log` or the screen output from `coa chase`
+- `data/qso.log` or the screen output from `seeq chase`
 
 ```
 <paste relevant logs here>
