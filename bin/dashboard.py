@@ -480,6 +480,33 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYC
  #lbTable tr.lbRow:hover{background:#161b22}
  .widget[data-key=status]{width:100%;height:66px}
 
+ /* ---- JS8 panel (M1). Sizes only -- every JS8 widget deliberately reuses the
+    existing .widget/.wtitle/.wbody/.actionbtn/.arow/.astatus chrome so the two
+    modes look like one application rather than two bolted together. Colour
+    semantics are the shared ones: red means actually keyed right now, orange
+    means armed-but-not-hot. ---- */
+ .widget[data-key=js8status]{width:100%;height:150px}
+ .widget[data-key=js8actions]{width:300px;height:230px}
+ .widget[data-key=js8conversation]{width:600px;height:340px}
+ .widget[data-key=js8compose]{width:420px;height:290px}
+ .widget[data-key=js8activity]{width:420px;height:280px}
+ .widget[data-key=js8inbox]{width:560px;height:280px}
+ /* The honest-limitation notice from watchdog.py, surfaced where the operator
+    actually is. Amber (attention), not red -- red is reserved for live TX. */
+ .js8warn{margin-top:8px;padding:8px 10px;border:1px solid #e3b341;border-radius:6px;
+  background:#1b1710;color:#e3b341;font-size:12px;line-height:1.5}
+ .js8text,.js8input{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;
+  border-radius:5px;padding:6px 8px;font-size:12px;font-family:inherit;width:100%}
+ .js8input{width:auto}
+ #js8Convo{font-size:12px;line-height:1.6;max-height:100%;overflow:auto}
+ .js8line{padding:3px 0;border-bottom:1px solid #21262d}
+ .js8from{color:#58a6ff;font-weight:700}
+ .js8to{color:#d2a8ff}
+ .js8cmd{color:#8b949e}
+ .js8mine{color:#3fb950;font-weight:700}
+ #js8DryrunBanner{background:#3d2b00;color:#e3b341;border:1px solid #e3b341;
+  border-radius:5px;padding:6px 8px;font-size:12px;margin-bottom:8px}
+
  .actionbtn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:5px;
   padding:5px 10px;font-size:12px;cursor:pointer}
  #snrRiskBar{height:5px;border-radius:3px;background:#21262d;margin:4px 0;overflow:hidden}
@@ -523,12 +550,12 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYC
   <div class=wbody><div class=infobar id=info><span class=dim>loading station config…</span></div></div>
  </div>
 
- <div class=widget data-key=decodes>
+ <div class=widget data-mode=ft8 data-key=decodes>
   <div class=wtitle><span class=wname>Decodes</span><span class=dim id=upd></span><button class=wcollapse></button></div>
   <div class=wbody><table id=dec><tr><th>slot</th><th>SNR</th><th>DT</th><th>Hz</th><th>message</th></tr></table></div>
  </div>
 
- <div class=widget data-key=ops>
+ <div class=widget data-mode=ft8 data-key=ops>
   <div class=wtitle><span class=wname>Next call</span><button class=wcollapse></button></div>
   <div class=wbody id=opsBody>
    <div class="next dim">suggestion:</div>
@@ -542,7 +569,7 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYC
   </div>
  </div>
 
- <div class=widget data-key=txpanel>
+ <div class=widget data-mode=ft8 data-key=txpanel>
   <div class=wtitle><span class=wname>TX transparency</span><span class=dim id=txPanelSub>no TX yet this session</span><button class=wcollapse></button></div>
   <div class=wbody>
    <div class=dim style="margin-bottom:6px">The exact message and spectrogram actually keyed — full visibility, for troubleshooting "why didn't it transmit".</div>
@@ -552,7 +579,7 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYC
   </div>
  </div>
 
- <div class=widget data-key=actions id=actionsWidget>
+ <div class=widget data-mode=ft8 data-key=actions id=actionsWidget>
   <div class=wtitle><span class=wname>Actions</span><button class=wcollapse></button></div>
   <div class=wbody>
    <div id=dryrunBanner>DRY-RUN MODE — actions are logged, not executed</div>
@@ -703,16 +730,94 @@ chmod 600 ~/.config/cota/qrz.key</pre>
   <div class=wbody><div id=moonWidget class=dim>loading…</div></div>
  </div>
 
- <div class=widget data-key=waterfall>
+ <div class=widget data-mode=ft8 data-key=waterfall>
   <div class=wtitle><span class=wname>Waterfall</span><button class=wcollapse></button></div>
   <div class=wbody><img id=wf src=/waterfall.png></div>
  </div>
 
- <div class=widget data-key=events>
+ <div class=widget data-mode=ft8 data-key=events>
   <div class=wtitle><span class=wname>Events</span><span class=dim>data/chase.log — engine diary, last __EVENT_LINES__ lines</span>
    <label class=dim style="cursor:pointer"><input type=checkbox id=evRaw> raw</label>
    <button class=wcollapse></button></div>
   <div class=wbody><pre id=events>no events yet</pre></div>
+ </div>
+
+ <div class=widget data-mode=js8 data-key=js8status>
+  <div class=wtitle><span class=wname>JS8 Status</span><span class=dim id=js8Sub>—</span><button class=wcollapse></button></div>
+  <div class=wbody>
+   <div class=infobar id=js8Info><span class=dim>waiting for JS8Call…</span></div>
+   <div id=js8WatchdogNote class=js8warn>
+    <b>JS8 transmit safety differs from FT8.</b> JS8Call-improved owns the CAT port and
+    does the keying, so SeeQ's unkey watchdog can only <i>ask</i> it to halt. If it
+    crashes or hangs while keyed, no software backstop can stop the radio — you can.
+    Stay at the station whenever JS8 TX is armed.
+   </div>
+  </div>
+ </div>
+
+ <div class=widget data-mode=js8 data-key=js8actions>
+  <div class=wtitle><span class=wname>JS8 Actions</span><button class=wcollapse></button></div>
+  <div class=wbody>
+   <div id=js8DryrunBanner style="display:none">DRY-RUN MODE — actions are logged, not executed</div>
+   <div class=astatus id=js8ActionStatus><span class=dim>—</span></div>
+   <div class=arow>
+    <button id=btnJs8Start class=actionbtn>Start JS8Call</button>
+    <button id=btnJs8Stop class=actionbtn>Stop JS8Call</button>
+   </div>
+   <div class=arow style="margin-top:8px">
+    <span class=dim>Speed</span>
+    <select id=js8Speed class=actionbtn></select>
+    <span class=dim id=js8SpeedNote></span>
+   </div>
+   <div class=dim id=js8ActionMsg style="margin-top:8px"></div>
+  </div>
+ </div>
+
+ <div class=widget data-mode=js8 data-key=js8conversation>
+  <div class=wtitle><span class=wname>Conversation</span>
+   <span class=dim>directed messages — JS8 carries real text, not just grid+report</span>
+   <button class=wcollapse></button></div>
+  <div class=wbody><div id=js8Convo class=dim>nothing heard yet</div></div>
+ </div>
+
+ <div class=widget data-mode=js8 data-key=js8compose>
+  <div class=wtitle><span class=wname>Compose</span>
+   <span class=dim id=js8QueueNote></span><button class=wcollapse></button></div>
+  <div class=wbody>
+   <div class=dim style="margin-bottom:6px">Plain text only — no ciphers or codes that obscure meaning (§97.113).
+    Your callsign travels in JS8's directed frames.</div>
+   <textarea id=js8Text class=js8text rows=3 placeholder="e.g. K1ABC HELLO FROM WISCONSIN"></textarea>
+   <div class=arow style="margin-top:8px">
+    <button id=btnJs8Send class="actionbtn warn tx-capable">Send…</button>
+    <span class=dim id=js8DialNote></span>
+   </div>
+   <div id=js8Confirm class=arow style="display:none;margin-top:8px">
+    <span id=js8ConfirmText></span>
+    <button id=btnJs8Confirm class="actionbtn warn tx-capable">Confirm TRANSMIT</button>
+    <button id=btnJs8Cancel class=actionbtn>Cancel</button>
+   </div>
+   <div class=dim id=js8SendMsg style="margin-top:8px"></div>
+  </div>
+ </div>
+
+ <div class=widget data-mode=js8 data-key=js8activity>
+  <div class=wtitle><span class=wname>Heard</span><span class=dim id=js8HeardSub></span><button class=wcollapse></button></div>
+  <div class=wbody><table id=js8Heard><tr><th>call</th><th>SNR</th><th>grid</th><th>Hz</th><th>when</th></tr></table></div>
+ </div>
+
+ <div class=widget data-mode=js8 data-key=js8inbox>
+  <div class=wtitle><span class=wname>Inbox</span>
+   <span class=dim>store-and-forward messages — JS8 relays these when the station is heard</span>
+   <button class=wcollapse></button></div>
+  <div class=wbody>
+   <div class=arow>
+    <input id=js8InboxCall class=js8input placeholder="TO callsign" size=10>
+    <input id=js8InboxText class=js8input placeholder="message to store" size=24>
+    <button id=btnJs8InboxStore class=actionbtn>Store</button>
+   </div>
+   <table id=js8InboxTable style="margin-top:8px"><tr><th>from</th><th>to</th><th>message</th><th>when</th></tr></table>
+   <div class=dim id=js8InboxMsg></div>
+  </div>
  </div>
 
 </div>
@@ -2263,6 +2368,19 @@ async function pollModeState(){
  }
  chooser.style.display=s.active_mode?'none':'flex';
  document.getElementById('hMode').textContent=modeLabelFor(s.active_mode,MODE_REGISTRY);
+ applyModeVisibility(s.active_mode);
+}
+/* Mode-scoped widgets. A widget with no data-mode is shared chrome (station
+   status, config, QRZ, logbook, map, moon) and stays visible in every mode;
+   one tagged data-mode=ft8/js8 only appears when that mode is active. The
+   cockpit bar -- and with it the STOP button -- lives outside #dash entirely,
+   so it is never affected by any of this. That is deliberate: MODES-ROADMAP's
+   ground rule is that shared chrome stays visible regardless of active mode,
+   and the unkey control is the last thing that should ever be hidden. */
+function applyModeVisibility(activeMode){
+ document.querySelectorAll('#dash .widget[data-mode]').forEach(w=>{
+  w.style.display=(!activeMode||w.dataset.mode===activeMode)?'':'none';
+ });
 }
 async function loadModeRegistry(){
  try{
@@ -2834,6 +2952,146 @@ wireActions();
 wireStationCfg();
 wireFreqLock();
 wireQrz();
+/* ================= JS8 panel (M1) =================
+   Follows the same shape as the FT8 widgets above: one combined poll
+   (/js8/state, 3 s -- same cadence as refreshActionsState) feeding several
+   widgets, and postAction() for every mutation. The compose widget's
+   two-step Send -> Confirm mirrors the chase confirm flow: nothing this panel
+   does can key the radio without a second, deliberate click. */
+const JS8_SPEEDS=[[0,'Normal (12.6 s)'],[1,'Fast (7.9 s)'],[2,'JS8 40 (4.0 s)'],
+                  [4,'Slow (25.3 s)'],[8,'JS8 60 (experimental)']];
+let JS8_STATE=null;
+function js8Ago(utcMs){
+ if(!utcMs) return '';
+ const s=Math.max(0,Math.round((Date.now()-utcMs)/1000));
+ if(s<60) return s+'s';
+ if(s<3600) return Math.round(s/60)+'m';
+ return Math.round(s/3600)+'h';
+}
+function js8ConvoHtml(directed){
+ if(!directed||!directed.length) return '<span class=dim>nothing heard yet</span>';
+ return directed.slice().reverse().map(d=>{
+  const mine=MYCALL&&String(d.to||'').toUpperCase()===String(MYCALL).toUpperCase();
+  const to=d.to?`<span class="js8to${mine?' js8mine':''}">${escapeHtml(d.to)}</span> `:'';
+  const cmd=d.cmd?`<span class=js8cmd>${escapeHtml(d.cmd)}</span> `:'';
+  const body=escapeHtml(d.msg||d.text||'');
+  return `<div class=js8line><span class=dim>${js8Ago(d.utc)}</span> `+
+         `<span class=js8from>${escapeHtml(d.from||'?')}</span> ${to}${cmd}${body}</div>`;
+ }).join('');
+}
+function js8HeardHtml(heard){
+ const rows=Object.entries(heard||{}).sort((a,b)=>(b[1].utc||0)-(a[1].utc||0));
+ if(!rows.length) return '<tr><th>call</th><th>SNR</th><th>grid</th><th>Hz</th><th>when</th></tr>';
+ return '<tr><th>call</th><th>SNR</th><th>grid</th><th>Hz</th><th>when</th></tr>'+
+  rows.map(([call,v])=>`<tr><td>${escapeHtml(call)}</td><td>${v.snr==null?'':escapeHtml(v.snr)}</td>`+
+   `<td>${escapeHtml(v.grid||'')}</td><td>${v.offset==null?'':escapeHtml(v.offset)}</td>`+
+   `<td class=dim>${js8Ago(v.utc)}</td></tr>`).join('');
+}
+function js8InboxHtml(messages){
+ const head='<tr><th>from</th><th>to</th><th>message</th><th>when</th></tr>';
+ if(!messages||!messages.length) return head;
+ return head+messages.map(m=>{
+  const p=(m&&m.params)||{};
+  return `<tr><td>${escapeHtml(p.FROM||'')}</td><td>${escapeHtml(p.TO||'')}</td>`+
+         `<td>${escapeHtml(p.TEXT||'')}</td><td class=dim>${escapeHtml(p.UTC||'')}</td></tr>`;
+ }).join('');
+}
+function js8InfoHtml(s){
+ const pl=(s&&s.pipeline)||{}, en=(s&&s.engine)||{}, cap=(s&&s.capture)||{};
+ const it=(k,v,cls)=>`<span class=it><span class=k>${k}</span><span class="v ${cls||''}">${v}</span></span>`;
+ const app=pl.running?(pl.api_reachable?'<span style="color:#3fb950">running</span>':
+                        '<span style="color:#e3b341">no API</span>')
+                     :'<span class=dim>stopped</span>';
+ const ptt=en.ptt?'<span style="color:#f85149;font-weight:700">KEYED</span>':'0';
+ let dial='—';
+ if(en.dial!=null){
+  dial=(en.dial/1e6).toFixed(3)+' MHz';
+  if(en.dial_ok===false) dial=`<span style="color:#f85149" title="${escapeHtml(en.dial_detail||'')}">${dial} ✗</span>`;
+ }
+ const wd=(en.watchdog&&en.watchdog.stale)?'<span style="color:#f85149">STALE</span>':
+          (en.watchdog&&en.watchdog.armed)?'<span style="color:#f0883e">armed</span>':'<span class=dim>idle</span>';
+ return it('JS8Call',app)+it('API port',escapeHtml(pl.port||'—'))+it('PTT',ptt)+
+        it('dial',dial)+it('speed',escapeHtml(en.speed_name||'—'))+
+        it('queue',escapeHtml(en.queue_depth==null?'—':en.queue_depth))+
+        it('watchdog',wd)+it('capture',cap.connected?'live':'<span class=dim>off</span>');
+}
+async function loadJs8State(){
+ const w=document.querySelector('.widget[data-key=js8status]');
+ if(w&&w.style.display==='none') return;   // not in JS8 mode; don't poll
+ let s;
+ try{ s=await (await fetch('/js8/state?t='+Date.now())).json(); }catch(e){ return; }
+ JS8_STATE=s;
+ const cap=s.capture||{}, en=s.engine||{}, pl=s.pipeline||{};
+ document.getElementById('js8Info').innerHTML=js8InfoHtml(s);
+ document.getElementById('js8Sub').textContent=pl.instance?('instance: '+pl.instance+' · v'+(pl.version||'?')):'';
+ document.getElementById('js8Convo').innerHTML=js8ConvoHtml(cap.directed);
+ document.getElementById('js8Heard').innerHTML=js8HeardHtml(cap.heard);
+ document.getElementById('js8HeardSub').textContent=Object.keys(cap.heard||{}).length+' stations';
+ document.getElementById('js8QueueNote').textContent=en.queue_depth?('queue: '+en.queue_depth):'';
+ document.getElementById('js8ActionStatus').innerHTML=
+   pl.running?'<span style="color:#3fb950">JS8Call running</span>':'<span class=dim>JS8Call stopped</span>';
+ const dn=document.getElementById('js8DialNote');
+ if(en.dial_ok===false) dn.innerHTML='<span style="color:#f85149">'+escapeHtml(en.dial_detail||'dial not verified')+'</span>';
+ else if(en.dial_ok===true) dn.textContent='dial verified';
+ else dn.textContent='';
+ const sel=document.getElementById('js8Speed');
+ if(sel && en.speed!=null && sel.value!==String(en.speed)) sel.value=String(en.speed);
+ /* Red only when genuinely keyed -- same rule the cockpit STOP button uses. */
+ const btn=document.getElementById('btnJs8Send');
+ if(btn) btn.classList.toggle('armed',!!en.ptt);
+}
+function js8Msg(id,text,bad){
+ const el=document.getElementById(id);
+ el.innerHTML=bad?('<span style="color:#f85149">'+escapeHtml(text)+'</span>'):escapeHtml(text);
+}
+function wireJs8(){
+ const sel=document.getElementById('js8Speed');
+ if(!sel) return;
+ sel.innerHTML=JS8_SPEEDS.map(([n,label])=>`<option value="${n}">${label}</option>`).join('');
+ if(DRYRUN) document.getElementById('js8DryrunBanner').style.display='block';
+ document.getElementById('btnJs8Start').addEventListener('click',async()=>{
+  js8Msg('js8ActionMsg','starting JS8Call…');
+  const r=await postAction('/action/js8/start',{});
+  js8Msg('js8ActionMsg',r.ok?'start requested':(r.body.error||r.error||'failed'),!r.ok);
+  loadJs8State();
+ });
+ document.getElementById('btnJs8Stop').addEventListener('click',async()=>{
+  js8Msg('js8ActionMsg','stopping JS8Call…');
+  const r=await postAction('/action/js8/stop',{});
+  js8Msg('js8ActionMsg',r.ok?'stop requested':(r.body.error||r.error||'failed'),!r.ok);
+  loadJs8State();
+ });
+ sel.addEventListener('change',async()=>{
+  const r=await postAction('/action/js8/speed',{speed:parseInt(sel.value,10)});
+  js8Msg('js8ActionMsg',r.ok?('speed: '+(r.body.detail||'')):(r.body.error||'failed'),!r.ok);
+ });
+ /* Two-step transmit. The first click only reveals the confirm row; only the
+    second actually POSTs, and the server requires confirm:true on top of that. */
+ const showConfirm=(on)=>{document.getElementById('js8Confirm').style.display=on?'flex':'none';};
+ document.getElementById('btnJs8Send').addEventListener('click',()=>{
+  const t=document.getElementById('js8Text').value.trim();
+  if(!t){ js8Msg('js8SendMsg','nothing to send',true); return; }
+  document.getElementById('js8ConfirmText').innerHTML=
+    'Transmit <b>'+escapeHtml(t)+'</b> ? You are the control operator.';
+  showConfirm(true);
+ });
+ document.getElementById('btnJs8Cancel').addEventListener('click',()=>{ showConfirm(false); });
+ document.getElementById('btnJs8Confirm').addEventListener('click',async()=>{
+  const t=document.getElementById('js8Text').value.trim();
+  showConfirm(false);
+  const r=await postAction('/action/js8/send',{text:t,confirm:true});
+  js8Msg('js8SendMsg',r.ok?(r.body.detail||'queued'):(r.body.error||r.error||'send failed'),!r.ok);
+  if(r.ok) document.getElementById('js8Text').value='';
+  loadJs8State();
+ });
+ document.getElementById('btnJs8InboxStore').addEventListener('click',async()=>{
+  const call=document.getElementById('js8InboxCall').value.trim();
+  const text=document.getElementById('js8InboxText').value.trim();
+  const r=await postAction('/action/js8/inbox',{call:call,text:text});
+  js8Msg('js8InboxMsg',r.ok?(r.body.detail||'stored'):(r.body.error||'failed'),!r.ok);
+  if(r.ok){ document.getElementById('js8InboxText').value=''; }
+ });
+}
 wireHelp();
 document.getElementById('evRaw').addEventListener('change',renderEvents);
 document.getElementById('txwf').addEventListener('error',function(){this.style.display='none';});
@@ -2849,6 +3107,7 @@ loadModeRegistry();
 pollModeState(); setInterval(pollModeState,1000);
 loadBandPulse(); setInterval(loadBandPulse,300000);
 loadAstroState(); setInterval(loadAstroState,60000);
+wireJs8(); loadJs8State(); setInterval(loadJs8State,3000);
 </script></body></html>"""
 PAGE = (PAGE.replace("__MYCALL__", MYCALL).replace("__MYGRID__", MYGRID)
             .replace("__EVENT_LINES__", str(EVENT_LINES))
@@ -3217,6 +3476,67 @@ def _validate_mode_switch(body):
         return None, f"unknown mode {mode!r} (known: {sorted(mode_registry.MODES)})"
     return mode, None
 
+
+JS8_MAX_TEXT = 400
+
+
+def _validate_js8_send(body):
+    """Pure validation for /action/js8/send. (text, None) or (None, error).
+
+    Same shape and spirit as _build_chase_args: the confirm gate is the
+    dashboard-side half of CLAUDE.md rule 1 (never transmit autonomously), and
+    it is checked here as well as in modes/js8/engine.send() on purpose --
+    neither layer should be the only thing standing between a stray POST and
+    a keyed transmitter.
+    """
+    # `or ""` before str(): a JSON body with "text": null would otherwise
+    # stringify to "None" -- truthy, four characters long, and it would go out
+    # over the air as the literal word.
+    text = str(body.get("text") or "").strip()
+    if not text:
+        return None, "text required"
+    if len(text) > JS8_MAX_TEXT:
+        return None, f"text too long ({len(text)} chars, max {JS8_MAX_TEXT})"
+    if not body.get("confirm"):
+        return None, "confirm required"
+    return text, None
+
+
+def _js8_halt_quietly():
+    """Best-effort RIG.TX_HALT for the STOP button. Never raises, never
+    blocks for long: with nothing listening on localhost the connection is
+    refused immediately, so this costs effectively nothing in FT8 mode.
+    Returns True only if the halt was actually acknowledged -- STOP should
+    not claim to have stopped something it couldn't reach."""
+    try:
+        _pipeline, js8_engine = mode_registry.load_mode("js8")
+        ok, _detail = js8_engine.halt()
+        return bool(ok)
+    except Exception as e:
+        log_action(f"UNKEY: JS8 TX_HALT unavailable: {e!r}")
+        return False
+
+
+def _js8_state():
+    """Combined JS8 panel snapshot: the capture process's rolling state file
+    plus a live API probe. Never raises -- a dashboard poll must not 500
+    because JS8Call happens to be down."""
+    state = {"capture": None, "engine": None, "pipeline": None}
+    try:
+        with open(os.path.join(DATA, "js8-state.json")) as f:
+            state["capture"] = json.load(f)
+    except (OSError, ValueError):
+        pass
+    try:
+        js8_pipeline, js8_engine = mode_registry.load_mode("js8")
+        state["pipeline"] = js8_pipeline.status()
+        if state["pipeline"].get("api_reachable"):
+            state["engine"] = js8_engine.status()
+    except Exception as e:
+        state["error"] = str(e)
+    return state
+
+
 class H(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=DATA, **kw)
@@ -3254,6 +3574,12 @@ class H(http.server.SimpleHTTPRequestHandler):
             except (OSError, ValueError):
                 pass
             self.send_body(json.dumps(state).encode(), "application/json")
+        elif path == "/js8/state":
+            # One combined snapshot for the whole JS8 panel: the capture
+            # process's rolling state file (cheap, always current) plus a live
+            # API probe for PTT/queue/dial. Mirrors /actions/state's role for
+            # FT8 -- one poll, not six.
+            self.send_body(json.dumps(_js8_state()).encode(), "application/json")
         elif path == "/bandpulse/conditions":
             ok, result = bandpulse.get_cached_or_fetch(MYGRID)
             if ok:
@@ -3361,6 +3687,18 @@ class H(http.server.SimpleHTTPRequestHandler):
                 self._action_unkey()
             elif path == "/action/mode/switch":
                 self._action_mode_switch(body)
+            elif path == "/action/js8/start":
+                self._action_js8(body, "start")
+            elif path == "/action/js8/stop":
+                self._action_js8(body, "stop")
+            elif path == "/action/js8/send":
+                self._action_js8(body, "send")
+            elif path == "/action/js8/halt":
+                self._action_js8(body, "halt")
+            elif path == "/action/js8/speed":
+                self._action_js8(body, "speed")
+            elif path == "/action/js8/inbox":
+                self._action_js8(body, "inbox")
             elif path == "/action/target/pick":
                 self._action_target_write(body, TARGET_REQ, "pick", need_call=True)
             elif path == "/action/target/skip":
@@ -3452,16 +3790,24 @@ class H(http.server.SimpleHTTPRequestHandler):
         unconditionally — this is a direct, independent call to the rig, not
         routed through qso.py's own state machine, so it still works even if
         the chaser is hung/buggy. Killing the chaser and reading PTT back are
-        secondary cleanup and never gate or delay the T 0 call. Never sends T 1."""
+        secondary cleanup and never gate or delay the T 0 call. Never sends T 1.
+
+        Since M1 this also fires JS8's RIG.TX_HALT, because in JS8 mode the
+        CAT port belongs to JS8Call-improved and the rigctl call above cannot
+        reach the radio at all. Both are attempted every time rather than
+        branching on the active mode: STOP should not depend on SeeQ's own
+        idea of which mode is running being correct, and whichever path is
+        inapplicable simply fails fast and harmlessly."""
         if DRYRUN:
             log_action(f"[DRYRUN] would UNKEY: rigctl -m {RIG_MODEL} -r {CAT_PORT} -s {CAT_BAUD} T 0; "
-                       f"pkill -f {QSO_PY}")
+                       f"JS8 RIG.TX_HALT; pkill -f {QSO_PY}")
             return self._ok({"unkeyed": True, "dryrun": True, "ptt": None})
         try:
             subprocess.run(["rigctl", "-m", RIG_MODEL, "-r", CAT_PORT, "-s", CAT_BAUD, "T", "0"],
                            capture_output=True, text=True, timeout=10)
         except Exception as e:
             log_action(f"UNKEY: rigctl T 0 error: {e!r}")
+        js8_halted = _js8_halt_quietly()
         killed = _pkill(QSO_PY)
         # qso.py is confirmed not running at this point (just killed, or
         # was never running) -- safe to clear its last engine.json snapshot,
@@ -3485,8 +3831,9 @@ class H(http.server.SimpleHTTPRequestHandler):
             ptt = r2.stdout.strip()
         except Exception as e:
             log_action(f"UNKEY: PTT readback error: {e!r}")
-        log_action(f"UNKEY: rigctl T 0 (sent first); pkill -f {QSO_PY} (killed={killed}); PTT readback={ptt}")
-        self._ok({"unkeyed": True, "killed": killed, "ptt": ptt})
+        log_action(f"UNKEY: rigctl T 0 (sent first); JS8 TX_HALT={js8_halted}; "
+                    f"pkill -f {QSO_PY} (killed={killed}); PTT readback={ptt}")
+        self._ok({"unkeyed": True, "killed": killed, "ptt": ptt, "js8_halted": js8_halted})
 
     def _action_mode_switch(self, body):
         """Fire-and-forget: spawns bin/mode_switch.py detached (the
@@ -3504,6 +3851,55 @@ class H(http.server.SimpleHTTPRequestHandler):
                          os.path.join(DATA, "mode-switch.log"))
         log_action(f"mode/switch: spawned python3 {MODE_SWITCH_PY} switch {mode}")
         self._ok({"started": True})
+
+    def _action_js8(self, body, what):
+        """JS8 panel actions. All the real logic lives in bin/modes/js8/ --
+        this only validates, dispatches, and reports back honestly.
+
+        'send' is the only path that can key the radio, and it is gated twice:
+        _validate_js8_send() requires an explicit confirm here, and
+        engine.send() independently requires confirm=True before it will do
+        anything. 'halt' is deliberately ungated and never dry-run-skipped --
+        a stop control must always actually try to stop.
+        """
+        try:
+            js8_pipeline, js8_engine = mode_registry.load_mode("js8")
+        except Exception as e:
+            return self._err(500, f"JS8 mode unavailable: {e}")
+
+        if what == "halt":
+            ok, detail = js8_engine.halt()
+            return self._ok({"halted": ok, "detail": detail}) if ok else self._err(502, detail)
+
+        if what == "start":
+            return self._ok(js8_pipeline.start(dryrun=DRYRUN))
+        if what == "stop":
+            return self._ok(js8_pipeline.stop(dryrun=DRYRUN))
+
+        if what == "send":
+            text, err = _validate_js8_send(body)
+            if err:
+                return self._err(400, err)
+            ok, detail = js8_engine.send(text, confirm=True, dryrun=DRYRUN)
+            return self._ok({"sent": True, "detail": detail}) if ok else self._err(400, detail)
+
+        if what == "speed":
+            try:
+                speed = int(body.get("speed"))
+            except (TypeError, ValueError):
+                return self._err(400, "speed required")
+            ok, detail = js8_engine.set_speed(speed)
+            return self._ok({"detail": detail}) if ok else self._err(400, detail)
+
+        if what == "inbox":
+            call = str(body.get("call", "")).strip().upper()
+            text = str(body.get("text", "")).strip()
+            if not call or not text:
+                return self._err(400, "call and text required")
+            ok, detail = js8_engine.inbox_store(call, text)
+            return self._ok({"detail": detail}) if ok else self._err(400, detail)
+
+        return self._err(400, f"unknown js8 action {what!r}")
 
     def _action_target_write(self, body, path, kind, need_call):
         call = str(body.get("call", "")).strip().upper()

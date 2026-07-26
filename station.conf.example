@@ -54,3 +54,14 @@ CQ_MODIFIERS_OK=NA,USA,US,POTA,SOTA,IOTA,QRP   # directed-CQ modifiers we answer
 
 # Dashboard
 HTTP_PORT=8074
+
+# JS8 mode (docs/MODES-ROADMAP.md M1). JS8Call-improved is fetched and launched
+# by SeeQ -- nothing to install by hand -- but it, not SeeQ, owns the CAT port
+# and does the keying while JS8 is the active mode.
+JS8_TCP_PORT=2442               # JS8Call-improved's TCPServerPort. 2442 is its own default;
+                                 # note its docs/API.md says 2242, which is actually the UDP
+                                 # port -- SeeQ enables and uses TCP. Only change this if you
+                                 # also change it in JS8Call's Settings -> Reporting.
+# Rig model and PTT method for JS8 are configured once inside JS8Call's own
+# settings GUI, not from here -- SeeQ deliberately won't guess values that
+# decide how your radio gets keyed. See bin/modes/js8/pipeline.py.

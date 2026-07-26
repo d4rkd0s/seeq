@@ -54,6 +54,27 @@ def check_tools():
             check("FAIL", f"{name} missing", remedy=remedy)
 
 
+def check_js8():
+    """JS8 mode's decoder is a vendored GUI AppImage, not a PATH binary, so
+    shutil.which() doesn't apply. WARN rather than FAIL: a station that only
+    ever runs FT8 is perfectly healthy without it, and `seeq mode switch js8`
+    fetches it on demand anyway."""
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "modes", "js8"))
+        import vendor as js8_vendor
+    except Exception as e:
+        check("WARN", f"JS8 vendor module not importable ({e})")
+        return
+    found = js8_vendor.find_installed()
+    if found is None:
+        check("WARN", f"JS8Call-improved {js8_vendor.PINNED_VERSION} not installed",
+              remedy="switch to JS8 mode once to fetch it, or place the AppImage at "
+                     f"{js8_vendor.repo_fallback_path()}")
+        return
+    where = "repo fallback" if found == js8_vendor.repo_fallback_path() else "download cache"
+    check("OK", f"JS8Call-improved {js8_vendor.PINNED_VERSION} present ({where})")
+
+
 def check_python_numpy():
     check("OK", f"python3 {sys.version.split()[0]}")
     try:
@@ -153,6 +174,7 @@ def main():
     print("=== SeeQ doctor ===")
     check_ntp()
     check_tools()
+    check_js8()
     check_python_numpy()
     cfg = check_station_conf()
     check_cat_port(cfg)

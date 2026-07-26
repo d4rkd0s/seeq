@@ -63,9 +63,27 @@ class TestLoadMode(unittest.TestCase):
         for fn in ("chase_start", "chase_stop"):
             self.assertTrue(callable(getattr(engine, fn)), fn)
 
+    def test_js8_is_registered(self):
+        # Was asserted to raise UnknownModeError until M1.2 built the package.
+        self.assertIn("js8", mode_registry.MODES)
+
+    def test_load_js8_returns_pipeline_and_engine(self):
+        pipeline, engine = mode_registry.load_mode("js8")
+        for fn in ("start", "stop", "is_running", "sanity_check", "preflight"):
+            self.assertTrue(callable(getattr(pipeline, fn)), fn)
+        for fn in ("chase_start", "chase_stop"):
+            self.assertTrue(callable(getattr(engine, fn)), fn)
+
+    def test_js8_engine_exposes_its_own_send_path(self):
+        # JS8 is conversational: the dashboard composes free text rather than
+        # running FT8's fixed exchange, so send/halt are the real entry points.
+        _pipeline, engine = mode_registry.load_mode("js8")
+        for fn in ("send", "halt", "set_speed"):
+            self.assertTrue(callable(getattr(engine, fn)), fn)
+
     def test_unknown_mode_raises(self):
         with self.assertRaises(mode_registry.UnknownModeError):
-            mode_registry.load_mode("js8")
+            mode_registry.load_mode("ft4")
 
     def test_unknown_mode_error_message_lists_known_modes(self):
         with self.assertRaises(mode_registry.UnknownModeError) as ctx:

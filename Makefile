@@ -17,6 +17,10 @@ test:
 	python3 tools/test_qrz_xml.py
 	python3 tools/test_mode_registry.py
 	python3 tools/test_mode_switch.py
+	python3 tools/test_js8_api.py
+	python3 tools/test_js8_vendor.py
+	python3 tools/test_mode_js8_pipeline.py
+	python3 tools/test_mode_js8_engine.py
 	python3 tools/test_bandpulse.py
 	python3 tools/test_band_plan.py
 	python3 tools/test_astro.py

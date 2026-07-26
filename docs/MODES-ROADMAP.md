@@ -112,10 +112,60 @@ the cut points instead of guessing now.
 | # | Task | Model | Notes |
 |---|------|-------|-------|
 | M1.1 | ~~Audit and close out Logan's separate JS8 repo, migrate anything reusable~~ **Done 2026-07-20** | H | `d4rkd0s/js8-mastery` audited via `gh`, research folded into `~/Radio/skills/js8.md`, repo archived. |
-| M1.2 | JS8 decoder/control wrapper — app is **JS8Call-improved** (github.com/JS8Call-improved/JS8Call-improved, v3.0.2), a GUI AppImage/dmg/installer, **not** a `jt9`-shaped headless CLI. It likely exposes a TCP JSON API (as upstream JS8Call does, for companion apps like GridTracker) — **verify the exact API surface against this fork specifically before writing `pipeline.py`**, don't assume it matches upstream from memory. | S | See `~/Radio/skills/js8.md` for app details and calling frequencies. |
-| M1.3 | `engine.py` for JS8 — **not** a copy of `qso.py`. JS8's grammar includes free-text messages, directed calls, heartbeat/relay and store-and-forward, which FT8's fixed 4-phase exchange doesn't have. | S | New state machine, new tests, same TDD bar. |
-| M1.4 | JS8 dashboard panel — likely needs an inbox/free-text view alongside waterfall+candidates, since JS8 carries real messages, not just grid+report | S | |
-| M1.5 | First on-air JS8 TX: full test suite + Logan's explicit watchdog/frequency-verification sign-off, same as FT8's original gate | — | Control-operator review, not a model task. |
+| M1.2 | ~~JS8 decoder/control wrapper~~ **Built 2026-07-26** — `bin/modes/js8/{api,vendor,pipeline,rx_capture}.py` | S | API verified against the fork's own `docs/API.md` + `JS8_UI/Configuration.cpp`. See "What verification turned up" below. |
+| M1.3 | ~~`engine.py` for JS8~~ **Built 2026-07-26** — `bin/modes/js8/{engine,watchdog}.py`. Correctly *not* a copy of `qso.py`: JS8Call-improved is itself the protocol engine, so `engine.py` is an orchestration + safety layer (confirm gate, dial read-back, pre-armed watchdog), not a state machine. | S | |
+| M1.4 | ~~JS8 dashboard panel~~ **Built 2026-07-26** — six `data-mode=js8` widgets (status, actions, conversation, compose, heard, inbox) reusing FT8's widget chrome. | S | M0b resolved by `data-mode` scoping rather than the physical `PAGE` split — see below. |
+| M1.5 | First on-air JS8 TX: full test suite + Logan's explicit watchdog/frequency-verification sign-off, same as FT8's original gate | — | **Still open.** Control-operator review, not a model task. Weigh the safety asymmetry below when signing off. |
+
+### What verification turned up (M1.2)
+
+The roadmap's instruction to verify the API against this fork rather than assume it
+matches upstream paid off immediately — **the fork's own documentation is wrong about
+the port.** `docs/API.md` says the API is "normally located on localhost port 2242" and
+its `telnet` example connects there, but `JS8_UI/Configuration.cpp` shows 2242 is the
+**UDP** default (`UDPServerPort`) and TCP defaults to **2442** (`TCPServerPort`).
+Building from the prose would have connected to the wrong socket. Also confirmed from
+source: both listeners ship **disabled** (`AcceptTCPRequests`/`AcceptUDPRequests` default
+`false`), and settings live in `~/.config/"JS8Call - <rig-name>.ini"` under `[General]`
+(`MultiSettings.cpp`'s `settings_path()` uses `ConfigLocation`, not `AppConfigLocation`).
+SeeQ runs the app as `--rig-name SeeQ`, so it has its own settings file and process
+signature and can never kill or reconfigure a hand-run JS8Call.
+
+Current release is **v3.0.3**, not the v3.0.2 the earlier research recorded.
+
+### The TX-safety asymmetry (read before M1.5 sign-off)
+
+FT8's watchdog is genuinely independent: `qso.py` spawns a detached
+`sleep N; rigctl T 0` process before every key-up, and `rigctl` drives the serial port
+directly, so the backstop survives `qso.py` dying outright.
+
+**JS8 cannot match that**, because JS8Call-improved — not SeeQ — owns the CAT port and
+does the keying. SeeQ's strongest lever, `RIG.TX_HALT`, is a *request to the very process
+being guarded*. What the JS8 watchdog does provide: its own detached process on its own
+separate TCP connection (so a wedged command socket can't wedge the backstop), a
+per-frame deadline that re-arms on each observed `RIG.PTT` push (16–32 s depending on
+speed, since JS8 frames run 3.95–25.28 s versus FT8's fixed 14 s), an absolute 300 s
+session cap, and a dial read-back on every key-up. What it cannot provide: any recovery
+at all if JS8Call-improved hangs or crashes while keyed — no request lands, and there is
+no second path to the radio. Frequency checking is also *reactive* rather than preventive
+in JS8, because JS8Call's own scheduler decides when each frame starts: the first frame
+of a mistuned session will have transmitted before SeeQ can abort the rest.
+
+In that failure mode the attended operator is not one backstop among several — it is the
+only one. This is documented in `bin/modes/js8/watchdog.py`, surfaced on the JS8 panel
+itself, and is the reason M1.5 stays gated.
+
+### M0b — resolved, differently than planned
+
+M0b (physically relocating `dashboard.py`'s ~2000 lines of FT8 HTML/JS into
+`bin/modes/ft8/panel.py`) was deferred until JS8 forced the question. JS8's real
+requirement turned out to be *mode-scoped visibility*, not file separation: FT8 widgets
+carry `data-mode=ft8`, JS8's carry `data-mode=js8`, untagged widgets are shared chrome
+shown in every mode, and `applyModeVisibility()` (tested under Node like the rest of the
+embedded JS) toggles them from the existing 1 s `pollModeState()` poll. That delivers the
+outcome M0b existed for at a fraction of the risk, without touching the `extract_*_js()`
+test helpers. The physical split remains available if `PAGE` later grows unmanageable,
+but it is no longer a prerequisite for anything.
 
 ## Phase M2 — Email-over-radio (Winlink — already researched, not yet installed)
 

@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 MODES = {
     "ft8": {"label": "FT8", "pipeline": "modes.ft8.pipeline", "engine": "modes.ft8.engine"},
+    "js8": {"label": "JS8", "pipeline": "modes.js8.pipeline", "engine": "modes.js8.engine"},
 }
 
 # MODE_INFO: display-only metadata for the dashboard's boot/mode chooser.
@@ -43,11 +44,13 @@ MODE_INFO = {
     },
     "js8": {
         "label": "JS8",
-        "status": "planned",
+        "status": "available",
         "description": ("FT8-derived mode that adds free-text keyboard-to-keyboard "
                          "messaging and store-and-forward relay on top of structured "
-                         "calling -- a real conversation, not just an exchange."),
-        "protocol_url": "http://js8call.com/",
+                         "calling -- a real conversation, not just an exchange. Driven "
+                         "through JS8Call-improved's TCP API; transmit is manual and "
+                         "confirmed per message, never automatic."),
+        "protocol_url": "https://github.com/JS8Call-improved/JS8Call-improved",
     },
     "winlink": {
         "label": "Winlink",

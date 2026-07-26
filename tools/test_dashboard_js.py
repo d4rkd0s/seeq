@@ -1448,5 +1448,70 @@ class TestTargetPickMessage(unittest.TestCase):
         self.assertIn("failed", r["msg"].lower())
 
 
+def extract_mode_visibility_js():
+    """The real applyModeVisibility() source, verbatim from PAGE."""
+    page = _dashboard_module().PAGE
+    start = page.index("function applyModeVisibility(activeMode){")
+    end = page.index("\n}", start) + 2
+    return page[start:end]
+
+
+def run_mode_visibility(active_mode, widgets):
+    """Run the real applyModeVisibility() against a tiny fake DOM.
+
+    `widgets` is a list of (data-mode or None) values; returns the resulting
+    display value for each, in order. A hand-rolled stub DOM keeps this a
+    dependency-free `node -e` run like the rest of this file.
+    """
+    js = extract_mode_visibility_js()
+    script = """
+const WIDGETS = %s.map(m => ({dataset: m === null ? {} : {mode: m}, style: {display: ''}}));
+const document = {
+  querySelectorAll(sel) {
+    if (sel !== '#dash .widget[data-mode]') throw new Error('unexpected selector: ' + sel);
+    // Only elements that actually carry data-mode match the selector.
+    return WIDGETS.filter(w => w.dataset.mode !== undefined);
+  }
+};
+%s
+applyModeVisibility(%s);
+process.stdout.write(JSON.stringify(WIDGETS.map(w => w.style.display)));
+""" % (json.dumps(widgets), js, json.dumps(active_mode))
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise AssertionError(f"node failed: {r.stderr.strip()}")
+    return json.loads(r.stdout)
+
+
+class TestApplyModeVisibility(unittest.TestCase):
+    """Mode-scoped widget visibility (M1). Getting this wrong either shows
+    both modes' panels at once or hides the active one, so it's worth running
+    the real function rather than trusting it by inspection."""
+
+    def test_js8_mode_hides_ft8_widgets_and_shows_js8_ones(self):
+        out = run_mode_visibility("js8", ["ft8", "js8", None])
+        self.assertEqual(out[0], "none")   # ft8 widget hidden
+        self.assertEqual(out[1], "")       # js8 widget shown
+        self.assertEqual(out[2], "")       # untagged shared chrome untouched
+
+    def test_ft8_mode_is_the_mirror_image(self):
+        out = run_mode_visibility("ft8", ["ft8", "js8", None])
+        self.assertEqual(out[0], "")
+        self.assertEqual(out[1], "none")
+        self.assertEqual(out[2], "")
+
+    def test_shared_chrome_is_never_hidden_in_any_mode(self):
+        for mode in ("ft8", "js8", None):
+            out = run_mode_visibility(mode, [None, None])
+            self.assertEqual(out, ["", ""], mode)
+
+    def test_no_active_mode_hides_nothing(self):
+        # Before a mode is chosen the chooser overlay covers the page anyway;
+        # hiding widgets underneath it would just cause a flash of relayout
+        # when the overlay clears.
+        out = run_mode_visibility(None, ["ft8", "js8", None])
+        self.assertEqual(out, ["", "", ""])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

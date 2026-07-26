@@ -20,3 +20,31 @@ jobs:
 
       - name: Run tests
         run: make test
+
+  # The JS8 fallback AppImage is committed to this repo precisely so JS8 mode
+  # survives GitHub (or the upstream project) being unavailable. A fallback
+  # nobody ever executes is a fallback that quietly rots until the day it's
+  # needed -- so CI actually launches it and confirms its TCP API comes up.
+  js8-fallback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3'
+
+      # libfuse2: AppImages need FUSE 2, which isn't on ubuntu-latest by
+      # default. xvfb: JS8Call-improved is a Qt GUI and constructs its
+      # QApplication before parsing argv, so it needs a display even to start.
+      - name: Install AppImage + headless display support
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 xvfb
+
+      - name: Verify the committed fallback matches its pinned checksum
+        run: python3 tools/js8_fallback_smoke.py --verify-only
+
+      - name: Launch it headless and confirm the TCP API answers
+        run: xvfb-run -a python3 tools/js8_fallback_smoke.py

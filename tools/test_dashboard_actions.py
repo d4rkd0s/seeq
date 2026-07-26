@@ -123,8 +123,16 @@ class TestValidateModeSwitch(unittest.TestCase):
         self.assertEqual(mode, "ft8")
         self.assertIsNone(err)
 
-    def test_unknown_mode_rejected(self):
+    def test_js8_ok(self):
         mode, err = dashboard._validate_mode_switch({"mode": "js8"})
+        self.assertEqual(mode, "js8")
+        self.assertIsNone(err)
+
+    def test_unknown_mode_rejected(self):
+        # "ft4" is still MODE_INFO-only (status: planned) with no
+        # bin/modes/ft4/ package -- switching to it must be refused, not
+        # attempted. js8 used to be the example here until M1.2 made it real.
+        mode, err = dashboard._validate_mode_switch({"mode": "ft4"})
         self.assertIsNone(mode)
         self.assertIn("unknown mode", err)
 
@@ -132,6 +140,84 @@ class TestValidateModeSwitch(unittest.TestCase):
         mode, err = dashboard._validate_mode_switch({})
         self.assertIsNone(mode)
         self.assertEqual(err, "mode required")
+
+
+class TestValidateJs8Send(unittest.TestCase):
+    """_validate_js8_send(): the dashboard-side half of the transmit gate.
+
+    engine.send() enforces confirm independently; this is checked in both
+    places on purpose, so neither one is the only thing between a stray POST
+    and a keyed transmitter.
+    """
+
+    def test_confirmed_text_ok(self):
+        text, err = dashboard._validate_js8_send({"text": "K1ABC HELLO", "confirm": True})
+        self.assertEqual(text, "K1ABC HELLO")
+        self.assertIsNone(err)
+
+    def test_missing_confirm_rejected(self):
+        text, err = dashboard._validate_js8_send({"text": "K1ABC HELLO"})
+        self.assertIsNone(text)
+        self.assertEqual(err, "confirm required")
+
+    def test_falsey_confirm_rejected(self):
+        for bad in (False, 0, "", None):
+            text, err = dashboard._validate_js8_send({"text": "HI", "confirm": bad})
+            self.assertIsNone(text, bad)
+
+    def test_empty_text_rejected(self):
+        for bad in ("", "   ", None):
+            text, err = dashboard._validate_js8_send({"text": bad, "confirm": True})
+            self.assertIsNone(text)
+            self.assertEqual(err, "text required")
+
+    def test_text_is_stripped(self):
+        text, _ = dashboard._validate_js8_send({"text": "  HI  ", "confirm": True})
+        self.assertEqual(text, "HI")
+
+    def test_overlong_text_rejected(self):
+        text, err = dashboard._validate_js8_send(
+            {"text": "A" * (dashboard.JS8_MAX_TEXT + 1), "confirm": True})
+        self.assertIsNone(text)
+        self.assertIn("too long", err)
+
+
+class TestJs8PanelMarkup(unittest.TestCase):
+    """The JS8 panel has to reuse FT8's widget chrome rather than inventing
+    its own, or the two modes stop looking like one application."""
+
+    def test_js8_widgets_use_the_shared_widget_shell(self):
+        for key in ("js8status", "js8actions", "js8conversation", "js8compose",
+                    "js8activity", "js8inbox"):
+            self.assertIn(f"data-key={key}", dashboard.PAGE, key)
+            self.assertIn(f".widget[data-key={key}]", dashboard.PAGE, f"{key} has no size rule")
+
+    def test_ft8_widgets_are_mode_tagged(self):
+        for key in ("decodes", "ops", "txpanel", "actions", "waterfall", "events"):
+            self.assertIn(f"data-mode=ft8 data-key={key}", dashboard.PAGE, key)
+
+    def test_shared_chrome_is_not_mode_tagged(self):
+        # These must stay visible in every mode: station status, config, the
+        # logbook and QRZ sync all describe the station, not the mode.
+        for key in ("status", "stationcfg", "qrz", "logbook", "map", "moon"):
+            self.assertIn(f"<div class=widget data-key={key}>", dashboard.PAGE, key)
+
+    def test_stop_button_lives_outside_the_mode_scoped_area(self):
+        # applyModeVisibility only ever touches '#dash .widget[data-mode]'.
+        # The unkey control sits in #cockpit, so no mode can hide it.
+        cockpit = dashboard.PAGE.split("<div id=cockpit>")[1].split("<div id=dash>")[0]
+        self.assertIn("btnUnkey", cockpit)
+
+    def test_transmit_control_is_marked_tx_capable(self):
+        # Same visual contract FT8's TX controls use.
+        self.assertIn('id=btnJs8Send class="actionbtn warn tx-capable"', dashboard.PAGE)
+
+    def test_panel_carries_the_watchdog_limitation_notice(self):
+        # watchdog.py documents that a JS8 halt is a request to a process that
+        # may itself be wedged. The operator should meet that fact on the
+        # dashboard, not only in a source comment.
+        self.assertIn("js8WatchdogNote", dashboard.PAGE)
+        self.assertIn("owns the CAT port", dashboard.PAGE)
 
 
 class TestFlagCodeRegex(unittest.TestCase):
