@@ -59,6 +59,32 @@ def verify():
     return path
 
 
+def _missing_libs(appimage):
+    """Which shared libraries the bundled binary wants but can't find.
+
+    The AppImage ships Qt but not host graphics drivers, so on a bare server
+    image the interesting failure is always 'which system package is absent'.
+    Extracts to a temp dir and runs ldd rather than guessing.
+    """
+    tmp = tempfile.mkdtemp(prefix="js8-ldd-")
+    try:
+        subprocess.run([appimage, "--appimage-extract"], cwd=tmp,
+                       capture_output=True, timeout=180)
+        binary = os.path.join(tmp, "squashfs-root", "usr", "bin", "JS8Call")
+        if not os.path.exists(binary):
+            return "(could not extract the AppImage to inspect it)"
+        env = dict(os.environ,
+                   LD_LIBRARY_PATH=os.path.join(tmp, "squashfs-root", "usr", "lib"))
+        r = subprocess.run(["ldd", binary], capture_output=True, text=True,
+                           timeout=60, env=env)
+        missing = [ln.strip() for ln in r.stdout.splitlines() if "not found" in ln]
+        return "\n".join(missing) if missing else "(ldd reports everything resolved)"
+    except Exception as e:
+        return f"(could not run ldd: {e})"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def smoke(path, port=None):
     port = port or api.DEFAULT_PORT
     tmp = tempfile.mkdtemp(prefix="js8-smoke-")
@@ -89,8 +115,15 @@ def smoke(path, port=None):
         while time.monotonic() < deadline:
             if proc.poll() is not None:
                 log.seek(0)
+                output = log.read()
                 print(f"FAIL: JS8Call exited early (rc={proc.returncode})\n"
-                      f"--- log ---\n{log.read()}", file=sys.stderr)
+                      f"--- log ---\n{output}", file=sys.stderr)
+                if "shared libraries" in output or proc.returncode == 127:
+                    # Missing host libraries is the most likely CI failure and
+                    # the least self-evident, so say what's actually missing
+                    # rather than making the next person re-derive it.
+                    print("--- unresolved shared libraries ---", file=sys.stderr)
+                    print(_missing_libs(path), file=sys.stderr)
                 return 1
             if api.is_reachable(port=port, timeout=1.0):
                 break
