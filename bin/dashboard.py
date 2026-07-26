@@ -2382,7 +2382,7 @@ function modeLabelFor(activeMode, registry){
 function shouldShowChooser(activeMode, forced, inflight){
  return !activeMode || !!forced || !!inflight;
 }
-let MODE_CHOOSER_FORCED=false, MODE_SWITCH_INFLIGHT=false;
+let MODE_CHOOSER_FORCED=false, MODE_SWITCH_INFLIGHT=false, chooserWasVisible=false;
 function openModeChooser(){ MODE_CHOOSER_FORCED=true; pollModeState(); }
 function closeModeChooser(){ MODE_CHOOSER_FORCED=false; MODE_SWITCH_INFLIGHT=false; pollModeState(); }
 async function pollModeState(){
@@ -2397,7 +2397,16 @@ async function pollModeState(){
   if(stage==='done'||stage==='already_active'){ MODE_SWITCH_INFLIGHT=false; MODE_CHOOSER_FORCED=false; }
   else if(stage==='error'){ MODE_SWITCH_INFLIGHT=false; }   // keep it open so the error is readable
  }
- chooser.style.display=shouldShowChooser(s.active_mode,MODE_CHOOSER_FORCED,MODE_SWITCH_INFLIGHT)?'flex':'none';
+ const show=shouldShowChooser(s.active_mode,MODE_CHOOSER_FORCED,MODE_SWITCH_INFLIGHT);
+ /* Re-read the registry whenever the chooser appears. It used to be fetched
+    once at page load, which meant a tab left open across a dashboard restart
+    kept rendering whatever the mode list looked like back then -- a mode that
+    became available in the meantime stayed greyed out as "coming soon" with
+    no way to pick it short of reloading. The chooser opens rarely, so
+    re-fetching on show costs nothing. */
+ if(show && !chooserWasVisible) loadModeRegistry();
+ chooserWasVisible=show;
+ chooser.style.display=show?'flex':'none';
  /* Cancel only exists once a mode is active -- at boot there's nothing to go
     back to, and dismissing it would leave the dashboard in no mode at all. */
  const cancel=document.getElementById('modeChooserCancel');
@@ -3647,6 +3656,12 @@ class H(http.server.SimpleHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        # The page and every JSON endpoint are live station state -- none of it
+        # is ever worth re-serving from a browser cache. Without this, a
+        # restarted dashboard can keep handing an open tab the previous
+        # build's HTML/JS, which reads as "my fix didn't deploy" and is
+        # genuinely hard to diagnose from the operator's side.
+        self.send_header("Cache-Control", "no-store, must-revalidate")
         self.end_headers()
         self.wfile.write(body)
 
