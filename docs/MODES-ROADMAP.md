@@ -131,7 +131,17 @@ source: both listeners ship **disabled** (`AcceptTCPRequests`/`AcceptUDPRequests
 SeeQ runs the app as `--rig-name SeeQ`, so it has its own settings file and process
 signature and can never kill or reconfigure a hand-run JS8Call.
 
-Current release is **v3.0.3**, not the v3.0.2 the earlier research recorded.
+**SeeQ pins v3.0.2, deliberately, even though v3.0.3 is newer.** v3.0.3 is built against
+Ubuntu 24.04-era libraries and needs `GLIBC_2.38`/`GLIBCXX_3.4.32`; this station runs
+Ubuntu 22.04 (glibc 2.35, GLIBCXX 3.4.30), where it dies at the dynamic linker before
+printing anything. v3.0.2 needs only `GLIBC_2.35`/`GLIBCXX_3.4.29` and runs fine. An
+AppImage bundles Qt but never bundles glibc, so this is not fixable by vendoring more.
+
+**CI cannot catch a regression here** — GitHub's `ubuntu-latest` has a newer glibc than
+the station, so v3.0.3 launches happily there. That's what `vendor.host_can_run()` is
+for: it compares the pinned build's requirements against the *running* host, and both
+`seeq doctor` and `pipeline.preflight()` surface the answer, so a bad pin produces a
+clear message instead of an opaque linker error at mode-switch time.
 
 ### The TX-safety asymmetry (read before M1.5 sign-off)
 

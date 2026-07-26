@@ -73,6 +73,14 @@ def check_js8():
         return
     where = "repo fallback" if found == js8_vendor.repo_fallback_path() else "download cache"
     check("OK", f"JS8Call-improved {js8_vendor.PINNED_VERSION} present ({where})")
+    runnable, detail = js8_vendor.host_can_run()
+    if runnable:
+        check("OK", f"JS8 host libraries: {detail}")
+    else:
+        check("FAIL", f"JS8Call-improved cannot start on this system: {detail}",
+              remedy="pin a JS8Call-improved build made for this distro (see the "
+                     "PINNED_VERSION comment in bin/modes/js8/vendor.py), or upgrade "
+                     "the OS. Note CI cannot catch this -- its runner is newer.")
 
 
 def check_python_numpy():

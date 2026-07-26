@@ -28,7 +28,21 @@ import shutil
 import stat
 import urllib.request
 
-PINNED_VERSION = "3.0.3"
+# PINNED TO 3.0.2 ON PURPOSE -- 3.0.3 exists and is newer, do not "upgrade"
+# this without reading the next paragraph.
+#
+# v3.0.3 is built against Ubuntu 24.04-era libraries and requires GLIBC_2.38 /
+# GLIBCXX_3.4.32. This station runs Ubuntu 22.04 (glibc 2.35, GLIBCXX 3.4.30),
+# so 3.0.3 dies at the dynamic linker before it prints anything:
+#     libstdc++.so.6: version `GLIBCXX_3.4.31' not found
+# v3.0.2 needs only GLIBC_2.35 / GLIBCXX_3.4.29 and runs here.
+#
+# Note that CI cannot catch a regression on this: GitHub's ubuntu-latest has a
+# newer glibc than the station does, so 3.0.3 launches happily there. That's
+# what host_can_run() below is for -- it compares the AppImage's requirements
+# against the *running* host, and doctor.py/pipeline.preflight() surface the
+# answer before a mode switch fails confusingly.
+PINNED_VERSION = "3.0.2"
 ASSET_NAME = f"JS8Call-v{PINNED_VERSION}-x86_64.AppImage"
 DOWNLOAD_URL = (
     "https://github.com/JS8Call-improved/JS8Call-improved/releases/download/"
@@ -38,8 +52,13 @@ DOWNLOAD_URL = (
 # file for this release, so this is the pin -- if it ever stops matching, the
 # release was re-cut (or something is wrong) and it needs deliberate review,
 # not a silently-updated constant.
-SHA256 = "3f89bd821f281c59a9384c08a3ad783ea3b9ac6abf319ce6c0d881c2ecc6e6cd"
-EXPECTED_BYTES = 59116024
+SHA256 = "930f3032ce94330018f08213f593b99c3c3496c7842e72fe664921e3ae94c4f0"
+EXPECTED_BYTES = 59591160
+
+# Highest symbol versions this build actually asks the host for. Checked
+# against the running system by host_can_run().
+REQUIRED_GLIBC = (2, 35)
+REQUIRED_GLIBCXX = (3, 4, 29)
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -117,6 +136,60 @@ def http_download(url, dest):
                 os.unlink(part)
             except OSError:
                 pass
+
+
+def _max_symbol_version(lib_path, prefix):
+    """Highest `prefix`N.N[.N] version symbol a library exports, or None."""
+    import re
+    import subprocess as sp
+    try:
+        out = sp.run(["strings", lib_path], capture_output=True, text=True, timeout=30).stdout
+    except Exception:
+        return None
+    versions = set()
+    for m in re.finditer(rf"{re.escape(prefix)}(\d+(?:\.\d+)+)", out):
+        versions.add(tuple(int(x) for x in m.group(1).split(".")))
+    return max(versions) if versions else None
+
+
+def host_can_run(required_glibc=REQUIRED_GLIBC, required_glibcxx=REQUIRED_GLIBCXX):
+    """(ok, detail) -- will the pinned AppImage's dynamic linking resolve here?
+
+    An AppImage bundles Qt and friends but never bundles glibc/libstdc++, so a
+    build made on a newer distro simply cannot start on an older one. That
+    failure is opaque when you hit it cold ("version `GLIBCXX_3.4.31' not
+    found" with no context), and CI can't warn about it because the runner's
+    glibc is newer than the station's -- so check the actual running host.
+
+    Unknown/unreadable system libraries return ok=True: refusing to start JS8
+    because a probe was inconclusive would be worse than letting the real
+    launch produce the real error.
+    """
+    libc_v = None
+    try:
+        import subprocess as sp
+        out = sp.run(["ldd", "--version"], capture_output=True, text=True, timeout=10).stdout
+        import re
+        m = re.search(r"(\d+)\.(\d+)\s*$", out.splitlines()[0]) or re.search(r"(\d+)\.(\d+)", out)
+        if m:
+            libc_v = (int(m.group(1)), int(m.group(2)))
+    except Exception:
+        pass
+    if libc_v and libc_v < tuple(required_glibc):
+        return False, (f"host glibc {libc_v[0]}.{libc_v[1]} is older than the "
+                        f"{required_glibc[0]}.{required_glibc[1]} JS8Call-improved "
+                        f"{PINNED_VERSION} needs")
+    for candidate in ("/lib/x86_64-linux-gnu/libstdc++.so.6",
+                       "/usr/lib/x86_64-linux-gnu/libstdc++.so.6"):
+        if os.path.exists(candidate):
+            have = _max_symbol_version(candidate, "GLIBCXX_")
+            if have and have < tuple(required_glibcxx):
+                dotted = ".".join(str(x) for x in required_glibcxx)
+                return False, (f"host libstdc++ provides up to GLIBCXX_"
+                                f"{'.'.join(str(x) for x in have)}, but JS8Call-improved "
+                                f"{PINNED_VERSION} needs GLIBCXX_{dotted}")
+            break
+    return True, "host libraries are new enough"
 
 
 def find_installed(cache_path=None, fallback_path=None, sha256=SHA256, size=EXPECTED_BYTES):

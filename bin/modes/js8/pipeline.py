@@ -263,6 +263,12 @@ def preflight(find_fn=None):
         return (False,
                 f"JS8Call-improved {vendor.PINNED_VERSION} not installed and no "
                 f"verified fallback found (run 'seeq doctor' for details)")
+    # A build made on a newer distro cannot start on this one, and the raw
+    # failure ("GLIBCXX_x.y.z not found") is opaque. Catch it here so a mode
+    # switch aborts with an explanation instead of a launch that dies silently.
+    ok, detail = vendor.host_can_run()
+    if not ok:
+        return False, f"JS8Call-improved cannot run on this system: {detail}"
     return True, "clear"
 
 

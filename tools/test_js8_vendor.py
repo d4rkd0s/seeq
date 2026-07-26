@@ -193,6 +193,48 @@ class TestPinnedRelease(unittest.TestCase):
     def test_repo_fallback_is_inside_the_repo(self):
         self.assertTrue(vendor.repo_fallback_path().startswith(ROOT))
 
+    def test_the_committed_fallback_matches_the_pin(self):
+        # The whole offline guarantee rests on these agreeing.
+        ok, detail = vendor.verify(vendor.repo_fallback_path())
+        self.assertTrue(ok, f"committed fallback does not match the pin: {detail}")
+
+
+class TestHostCompatibility(unittest.TestCase):
+    """An AppImage bundles Qt but never glibc/libstdc++, so a build made on a
+    newer distro cannot start on an older one -- and CI can't catch it, because
+    the runner's glibc is newer than the station's. host_can_run() compares the
+    pin's requirements against the actual running host.
+
+    This is not hypothetical: v3.0.3 needs GLIBCXX_3.4.32 and dies at the
+    linker on Ubuntu 22.04, which is why the pin is deliberately 3.0.2.
+    """
+
+    def test_pin_is_3_0_2_not_a_newer_build(self):
+        # Guards against a well-meant "update to latest" that would silently
+        # break JS8 on this station. Read vendor.py's PINNED_VERSION comment
+        # before changing this.
+        self.assertEqual(vendor.PINNED_VERSION, "3.0.2")
+
+    def test_declared_requirements_are_the_older_toolchain(self):
+        self.assertLessEqual(tuple(vendor.REQUIRED_GLIBC), (2, 35))
+        self.assertLessEqual(tuple(vendor.REQUIRED_GLIBCXX), (3, 4, 29))
+
+    def test_this_host_can_actually_run_the_pinned_build(self):
+        ok, detail = vendor.host_can_run()
+        self.assertTrue(ok, f"the pinned AppImage cannot run here: {detail}")
+
+    def test_an_impossible_requirement_is_reported_not_ignored(self):
+        ok, detail = vendor.host_can_run(required_glibc=(99, 0),
+                                          required_glibcxx=(3, 4, 29))
+        self.assertFalse(ok)
+        self.assertIn("glibc", detail.lower())
+
+    def test_an_impossible_libstdcxx_requirement_is_caught(self):
+        ok, detail = vendor.host_can_run(required_glibc=(2, 0),
+                                          required_glibcxx=(9, 9, 99))
+        self.assertFalse(ok)
+        self.assertIn("GLIBCXX", detail)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
