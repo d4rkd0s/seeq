@@ -19,6 +19,7 @@ test:
 	python3 tools/test_mode_switch.py
 	python3 tools/test_bandpulse.py
 	python3 tools/test_band_plan.py
+	python3 tools/test_astro.py
 
 selftest:
 	@echo "=== Running seeq selftest ==="
