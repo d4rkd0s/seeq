@@ -149,6 +149,20 @@ stay inside §97.113 (no business communications with narrow exceptions, no cont
 obscures meaning) — worth Logan's explicit re-read before this mode goes live, independent
 of the technical design being settled. See the FCC Part 97 notes in `~/Radio/CLAUDE.md`.
 
+## Backlog (flagged, not yet scheduled)
+
+- **i18n / global adoption.** SeeQ's non-DX-mode candidate ranking (`qso.py`'s
+  `rank_cqs`/`candidate_tier`, added 2026-07-25) already derives "home country" from the
+  operator's own `MYCALL` prefix via `dxcc.country_for_call()` — never hardcoded to the
+  US, works correctly for any operator's callsign out of the box. What's still
+  US-centric is display polish only: `dashboard.py`'s `callLocation()`/`targetLatLon()`
+  special-case `country==='United States'` to show state-from-grid and US call-area
+  detail for US-based **contacts** (this is about the other station, not the operator,
+  so it doesn't need a config key — it's just extra detail SeeQ can offer for any
+  contact whose country happens to resolve to the US, regardless of where the operator
+  is). Actual UI-string translation (station log messages, dashboard labels) hasn't
+  been scoped at all — flagged here per Logan's 2026-07-25 note, not started.
+
 ## Execution notes
 
 - **Order: M0a before any M1/M2 feature code.** Building JS8 straight into today's

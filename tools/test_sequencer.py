@@ -322,22 +322,110 @@ class TestArgParsing(unittest.TestCase):
         self.assertEqual(a.minutes, 5.0)
 
 
+class TestCandidateTier(unittest.TestCase):
+    """candidate_tier(call, logged_countries, home_call) — the 4-tier
+    priority non-DX-mode ranking uses: 0 = country never logged (new DX,
+    any distance), 1 = worked DX that's NOT a near neighbor of home
+    (genuine long-distance DX), 2 = worked DX that IS a near neighbor of
+    home (e.g. Canada/Mexico for a US station -- still DX, still ranked
+    above home), 3 = home country (or unresolved/unmapped -- fails CLOSED,
+    same convention as dxcc.is_new_country/is_dx_call/is_neighbor_call: an
+    unmapped call can never claim a tier it can't prove)."""
+
+    def test_new_country_is_tier_0(self):
+        self.assertEqual(qso.candidate_tier("DL1ABC", set(), "K5XYZ"), 0)
+
+    def test_new_neighbor_country_is_still_tier_0(self):
+        # unworked always wins, even a neighbor -- matches the "unless the
+        # user doesn't have Canada/Mexico yet" requirement.
+        self.assertEqual(qso.candidate_tier("VE3ABC", set(), "W1AW"), 0)
+
+    def test_worked_long_distance_dx_is_tier_1(self):
+        self.assertEqual(qso.candidate_tier("DL1ABC", {"Germany"}, "W1AW"), 1)
+
+    def test_worked_neighbor_dx_is_tier_2(self):
+        self.assertEqual(qso.candidate_tier("VE3ABC", {"Canada"}, "W1AW"), 2)
+        self.assertEqual(qso.candidate_tier("XE1ABC", {"Mexico"}, "W1AW"), 2)
+
+    def test_home_country_is_tier_3(self):
+        self.assertEqual(qso.candidate_tier("W1AW", {"United States"}, "K5XYZ"), 3)
+
+    def test_unmapped_call_fails_closed_to_tier_3(self):
+        self.assertEqual(qso.candidate_tier("QQ9ZZZ", set(), "K5XYZ"), 3)
+
+    def test_unmapped_home_call_fails_closed_to_tier_3_for_known_country(self):
+        # home country can't be resolved -> is_dx_call fails closed False,
+        # so even a clearly-foreign call that's already logged can't prove
+        # it's "DX" relative to an unknown home -- falls to tier 3, not 1/2.
+        self.assertEqual(qso.candidate_tier("DL1ABC", {"Germany"}, "QQ9ZZZ"), 3)
+
+
 class TestRankCqs(unittest.TestCase):
-    """rank_cqs(cqs, dx_mode, logged_countries, pileup_penalty) — DX Mode's
-    hard-priority candidate ranking, extracted out of main()'s hunt loop so
-    it's unit-testable without radio I/O. Pure: synthetic (decode, call,
-    grid) tuples, no ADIF files, no decode history."""
+    """rank_cqs(cqs, dx_mode, logged_countries, pileup_penalty, home_call) —
+    DX Mode's hard-priority candidate ranking, extracted out of main()'s
+    hunt loop so it's unit-testable without radio I/O. Pure: synthetic
+    (decode, call, grid) tuples, no ADIF files, no decode history."""
 
     def cq(self, call, snr):
         return ({"snr": snr}, call, "")
 
-    def test_dx_mode_off_pure_snr_ranking(self):
-        # logged_countries is ignored entirely when dx_mode is False --
-        # regression proof the non-DX-mode path is unchanged.
-        cqs = [self.cq("DL1ABC", -18), self.cq("K5XYZ", -3)]
-        logged = {"Germany"}  # would matter if dx_mode were True; must not here
+    def test_dx_mode_off_new_country_beats_worked_dx_and_home(self):
+        # priority order requested: new-country DX first, then already-
+        # worked DX, then home country -- regardless of raw SNR.
+        cqs = [self.cq("W1AW", -3), self.cq("F5AAA", -10), self.cq("DL1ABC", -20)]
+        logged = {"United States", "France"}  # Germany not logged -> DL1ABC new
+        ranked = qso.rank_cqs(cqs, False, logged, {}, home_call="K5XYZ")
+        self.assertEqual([c for _, c, _ in ranked], ["DL1ABC", "F5AAA", "W1AW"])
+
+    def test_dx_mode_off_worked_dx_beats_home_even_if_weaker(self):
+        cqs = [self.cq("W1AW", -3), self.cq("F5AAA", -18)]
+        logged = {"United States", "France"}
+        ranked = qso.rank_cqs(cqs, False, logged, {}, home_call="K5XYZ")
+        self.assertEqual([c for _, c, _ in ranked], ["F5AAA", "W1AW"])
+
+    def test_dx_mode_off_long_distance_dx_beats_neighbor_dx_even_if_weaker(self):
+        # the LD-vs-neighbor request: EU/Africa DX outranks Canada/Mexico
+        # DX once both are already worked, regardless of raw SNR.
+        cqs = [self.cq("VE3ABC", -3), self.cq("DL1ABC", -18)]
+        logged = {"United States", "Canada", "Germany"}
+        ranked = qso.rank_cqs(cqs, False, logged, {}, home_call="W1AW")
+        self.assertEqual([c for _, c, _ in ranked], ["DL1ABC", "VE3ABC"])
+
+    def test_dx_mode_off_neighbor_dx_still_beats_home_even_if_weaker(self):
+        cqs = [self.cq("K5XYZ", -3), self.cq("VE3ABC", -18)]
+        logged = {"United States", "Canada"}
+        ranked = qso.rank_cqs(cqs, False, logged, {}, home_call="W1AW")
+        self.assertEqual([c for _, c, _ in ranked], ["VE3ABC", "K5XYZ"])
+
+    def test_dx_mode_off_unworked_neighbor_still_beats_worked_long_distance(self):
+        # tier 0 (new) always wins, even a neighbor, over tier 1 (worked LD).
+        cqs = [self.cq("DL1ABC", -3), self.cq("VE3ABC", -18)]
+        logged = {"United States", "Germany"}  # Canada not logged -> VE3ABC new
+        ranked = qso.rank_cqs(cqs, False, logged, {}, home_call="W1AW")
+        self.assertEqual([c for _, c, _ in ranked], ["VE3ABC", "DL1ABC"])
+
+    def test_dx_mode_off_ties_broken_by_snr_within_tier(self):
+        cqs = [self.cq("F5AAA", -18), self.cq("DL1ABC", -5)]  # both worked-DX
+        logged = {"France", "Germany"}
+        ranked = qso.rank_cqs(cqs, False, logged, {}, home_call="K5XYZ")
+        self.assertEqual([c for _, c, _ in ranked], ["DL1ABC", "F5AAA"])
+
+    def test_dx_mode_off_all_home_country_is_pure_snr(self):
+        # regression proof: when nothing is DX, behavior matches the old
+        # pure-SNR ranking exactly (the common single-country case).
+        cqs = [self.cq("W1AW", -18), self.cq("K5XYZ", -3)]
+        logged = {"United States"}
+        ranked = qso.rank_cqs(cqs, False, logged, {}, home_call="K5XYZ")
+        self.assertEqual([c for _, c, _ in ranked], ["K5XYZ", "W1AW"])
+
+    def test_dx_mode_off_no_home_call_degrades_to_new_vs_not(self):
+        # home_call omitted/unresolvable -> is_dx_call fails closed, so this
+        # degrades gracefully to "new country first, everything else by SNR"
+        # rather than mis-ranking anything as home when it can't prove it.
+        cqs = [self.cq("W1AW", -3), self.cq("DL1ABC", -18)]
+        logged = {"United States"}
         ranked = qso.rank_cqs(cqs, False, logged, {})
-        self.assertEqual([c for _, c, _ in ranked], ["K5XYZ", "DL1ABC"])
+        self.assertEqual([c for _, c, _ in ranked], ["DL1ABC", "W1AW"])
 
     def test_dx_mode_on_new_country_beats_higher_snr_old_country(self):
         # the key hard-priority proof: a WEAK new-country candidate outranks
@@ -516,22 +604,19 @@ class TestRetryBudget(unittest.TestCase):
 
 class TestTargetIsNewCountry(unittest.TestCase):
     """target_is_new_country(): whether the just-picked target represents a
-    country never logged before -- always False when DX Mode is off (the
-    `logged` set is only meaningfully populated when dx_mode is True in the
-    hunt loop; an empty `logged` set must never be read as "everything is
-    new")."""
+    country never logged before -- drives the dashboard's new-country
+    celebration flash. `logged` is now always meaningfully populated (the
+    hunt loop computes it regardless of dx_mode, since non-DX-mode ranking
+    needs it too -- see TestRankCqs), so this no longer gates on dx_mode."""
 
-    def test_false_when_dx_mode_off(self):
-        self.assertFalse(qso.target_is_new_country("DL1ABC", False, set()))
+    def test_true_when_country_not_logged(self):
+        self.assertTrue(qso.target_is_new_country("DL1ABC", set()))
 
-    def test_true_when_dx_mode_on_and_country_not_logged(self):
-        self.assertTrue(qso.target_is_new_country("DL1ABC", True, set()))
+    def test_false_when_country_already_logged(self):
+        self.assertFalse(qso.target_is_new_country("DL1ABC", {"Germany"}))
 
-    def test_false_when_dx_mode_on_but_country_already_logged(self):
-        self.assertFalse(qso.target_is_new_country("DL1ABC", True, {"Germany"}))
-
-    def test_false_when_call_unmapped_even_with_dx_mode_on(self):
-        self.assertFalse(qso.target_is_new_country("QQ9ZZZ", True, set()))
+    def test_false_when_call_unmapped(self):
+        self.assertFalse(qso.target_is_new_country("QQ9ZZZ", set()))
 
 
 class TestLogQsoDoesNotFlipOuterState(unittest.TestCase):

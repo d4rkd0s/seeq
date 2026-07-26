@@ -45,6 +45,38 @@ class TestIsDxCall(unittest.TestCase):
         self.assertFalse(dxcc.is_dx_call("DL1ABC", "QQ9ZZZ"))
 
 
+class TestIsNeighborCall(unittest.TestCase):
+    """is_neighbor_call(call, home_call): True when `call`'s DXCC country
+    shares a land border with `home_call`'s (bin/country_adjacency.json) --
+    used by qso.py's candidate_tier to rank genuine long-distance DX (EU,
+    Africa, Asia...) above "easy" neighboring-country DX (Canada/Mexico for
+    a US station), without ever outranking an unworked/new country (that
+    stays candidate_tier's tier 0 regardless of neighbor status)."""
+
+    def test_canada_is_neighbor_of_united_states(self):
+        self.assertTrue(dxcc.is_neighbor_call("VE3ABC", "W1AW"))
+
+    def test_mexico_is_neighbor_of_united_states(self):
+        self.assertTrue(dxcc.is_neighbor_call("XE1ABC", "W1AW"))
+
+    def test_germany_is_not_neighbor_of_united_states(self):
+        self.assertFalse(dxcc.is_neighbor_call("DL1ABC", "W1AW"))
+
+    def test_same_country_is_not_a_neighbor(self):
+        self.assertFalse(dxcc.is_neighbor_call("K5XYZ", "W1AW"))
+
+    def test_unmapped_call_fails_closed(self):
+        self.assertFalse(dxcc.is_neighbor_call("QQ9ZZZ", "W1AW"))
+
+    def test_unmapped_home_call_fails_closed(self):
+        self.assertFalse(dxcc.is_neighbor_call("DL1ABC", "QQ9ZZZ"))
+
+    def test_dxcc_entity_with_no_border_country_fails_closed(self):
+        # Alaska is its own DXCC entity but not a distinct Natural Earth
+        # political country -- can't resolve an ISO2, must never guess.
+        self.assertFalse(dxcc.is_neighbor_call("KL7ABC", "W1AW"))
+
+
 class TestLoggedCountries(unittest.TestCase):
     def test_resolves_known_calls_to_country_set(self):
         self.assertEqual(dxcc.logged_countries(["DL1ABC", "DL9XYZ", "W1AW"]),

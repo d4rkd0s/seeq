@@ -313,13 +313,14 @@ def retry_budget(base_max_repeat, someone_else_calling):
     return max(1, base_max_repeat // 2)
 
 
-def target_is_new_country(call, dx_mode, logged):
+def target_is_new_country(call, logged):
     """Whether the just-picked target represents a country never logged
-    before. Always False when dx_mode is off -- `logged` is only
-    meaningfully populated when DX Mode is on (see the hunt loop's `logged =
-    ... if dx_mode else set()`), so an empty set here must never be read as
-    "everything is new"."""
-    return bool(dx_mode) and dxcc.is_new_country(call, logged)
+    before -- drives the dashboard's new-country celebration flash. `logged`
+    is now always meaningfully populated (the hunt loop tracks worked
+    countries regardless of dx_mode, since non-DX-mode ranking needs it too
+    -- see rank_cqs), so this is a thin wrapper kept as its own function so
+    the hunt loop doesn't need to import dxcc directly."""
+    return dxcc.is_new_country(call, logged)
 
 
 def worked_calls():
@@ -353,36 +354,64 @@ def all_time_worked_calls():
         pass
     return w
 
-def rank_cqs(cqs, dx_mode, logged_countries, pileup_penalty):
+def _cq_score(x, pileup_penalty):
+    return -(x[0]["snr"] - pileup_penalty.get(x[1], 0))
+
+def candidate_tier(call, logged_countries, home_call):
+    """Non-DX-mode priority tier for one candidate:
+    0 = country never logged (new DX) -- unconditional top priority,
+        regardless of distance; an unworked neighbor still beats a worked
+        long-distance country.
+    1 = worked DX, NOT a near neighbor of home (genuine long-distance DX --
+        e.g. EU/Africa/Asia for a US station) -- "real" DX, ranked above...
+    2 = worked DX AND a near neighbor of home (e.g. Canada/Mexico for a US
+        station) -- still DX, still above home, but neighbors are typically
+        easy/plentiful contacts so genuine LD DX gets first shot.
+    3 = home country.
+    Fails CLOSED like dxcc.is_new_country/is_dx_call/is_neighbor_call: an
+    unmapped call, or an unresolvable home_call, can never claim a tier it
+    can't prove -- falls to tier 3 rather than risk a false priority boost."""
+    if dxcc.is_new_country(call, logged_countries):
+        return 0
+    if dxcc.is_dx_call(call, home_call):
+        return 2 if dxcc.is_neighbor_call(call, home_call) else 1
+    return 3
+
+def rank_cqs(cqs, dx_mode, logged_countries, pileup_penalty, home_call=None):
     """cqs: list of (decode_dict, call, grid) tuples. pileup_penalty: dict
     call -> dB penalty (6 * competitor count). Returns a NEW sorted list,
-    best-first. dx_mode False: pure SNR-minus-pileup (today's behavior,
-    unchanged). dx_mode True: HARD priority -- any candidate whose country
-    is not in `logged_countries` ranks ahead of any candidate whose country
-    already is, regardless of signal strength; SNR-minus-pileup only orders
-    within each of those two groups."""
-    def score(x):
-        return -(x[0]["snr"] - pileup_penalty.get(x[1], 0))
+    best-first. dx_mode False: DX-aware 4-tier priority via candidate_tier
+    (new country > long-distance DX > neighboring-country DX > home
+    country) -- SNR-minus-pileup only orders within each tier; nothing is
+    filtered out here (unlike DX Mode's dx_filter_ok), home-country CQs
+    stay fully answerable, just deprioritized. dx_mode True: unchanged HARD
+    priority -- any candidate
+    whose country is not in `logged_countries` ranks ahead of any candidate
+    whose country already is, regardless of signal strength; SNR-minus-
+    pileup only orders within each of those two groups."""
     if dx_mode:
-        return sorted(cqs, key=lambda x: (0 if dxcc.is_new_country(x[1], logged_countries) else 1, score(x)))
-    return sorted(cqs, key=score)
+        return sorted(cqs, key=lambda x: (0 if dxcc.is_new_country(x[1], logged_countries) else 1,
+                                           _cq_score(x, pileup_penalty)))
+    return sorted(cqs, key=lambda x: (candidate_tier(x[1], logged_countries, home_call),
+                                       _cq_score(x, pileup_penalty)))
 
 def dx_priority_bump(cqs, dx_mode, logged_countries, pileup_penalty):
     """Detects whether DX Mode's hard-priority reorder (rank_cqs) actually
     changed this cycle's outcome: rank_cqs can rank a weaker new-country
     candidate ahead of a stronger already-logged-country one. Returns
     (top_call, n_stronger) when that happened -- n_stronger is how many
-    candidates outrank top_call under plain SNR-minus-pileup order, i.e. how
-    many stronger candidates got jumped. Returns None when dx_mode is off,
-    cqs is empty, or the DX-mode top pick is unchanged from the plain-SNR
-    top pick (rank_cqs didn't move anything this cycle, nothing worth
-    logging). Pure -- only used to decide whether to log a line; rank_cqs()
-    itself already performs the real reorder used for selection, this never
-    affects it."""
+    candidates outrank top_call under plain SNR-minus-pileup order (NOT the
+    non-DX-mode 3-tier order -- this needs the truly plain baseline to
+    measure how many stronger candidates got jumped), i.e. how many
+    stronger candidates got jumped. Returns None when dx_mode is off, cqs is
+    empty, or the DX-mode top pick is unchanged from the plain-SNR top pick
+    (rank_cqs didn't move anything this cycle, nothing worth logging). Pure
+    -- only used to decide whether to log a line; rank_cqs() itself already
+    performs the real reorder used for selection, this never affects it."""
     if not dx_mode or not cqs:
         return None
     dx_top = rank_cqs(cqs, True, logged_countries, pileup_penalty)[0][1]
-    plain_order = [c for _, c, _ in rank_cqs(cqs, False, logged_countries, pileup_penalty)]
+    plain_order = [c for _, c, _ in sorted(cqs, key=lambda x: _cq_score(x, pileup_penalty))]
     n_stronger = plain_order.index(dx_top)
     return (dx_top, n_stronger) if n_stronger > 0 else None
 
@@ -692,11 +721,13 @@ def main():
                         if r["msg"].startswith(c + " ") and len(r["msg"].split()) >= 2
                         and r["msg"].split()[1] != MYCALL})
         pileup_penalty = {call: 6 * competitors(call) for _, call, _ in cqs}
-        logged = dxcc.logged_countries(all_time_worked_calls()) if dx_mode else set()
+        # Tracked regardless of dx_mode now -- non-DX-mode ranking (below)
+        # needs worked-country history too, not just DX Mode's hard filter.
+        logged = dxcc.logged_countries(all_time_worked_calls())
         bump = dx_priority_bump(cqs, dx_mode, logged, pileup_penalty)
         if bump:
             ev(f"DX Mode: prioritizing {bump[0]} (new country) over {bump[1]} stronger candidate(s)")
-        cqs = rank_cqs(cqs, dx_mode, logged, pileup_penalty)
+        cqs = rank_cqs(cqs, dx_mode, logged, pileup_penalty, home_call=MYCALL)
         requested = _read_target_request()
         d, call, grid = select_target(cqs, requested)
         their_parity = slot_parity_of(d["slot"])
@@ -705,7 +736,7 @@ def main():
         f0, gap = pick_offset(recent[-60:], our_parity)
         ev(f"TARGET {call} {grid} (CQ {d['snr']} dB @ {d['freq']} Hz, their parity {'even' if their_parity==0 else 'odd'}) -> our offset {f0} Hz (gap {gap} Hz)")
         write_engine_state(state="calling", target=call, grid=grid, offset=f0,
-                            new_country=target_is_new_country(call, dx_mode, logged))
+                            new_country=target_is_new_country(call, logged))
         tried.add(call)
         target_start_ts = now()
         tx_count = __import__("collections").defaultdict(int)

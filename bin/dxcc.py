@@ -7,7 +7,15 @@ Data: bin/dxcc_prefixes.json (best-effort, not exhaustive — see callers).
 import json
 import os
 
+import country_adjacency
+import country_borders
+
 _PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dxcc_prefixes.json")
+
+# Natural Earth's political-country names (country_borders.py, used for the
+# map) mostly match dxcc.py's DXCC entity names verbatim (e.g. "Germany" ==
+# "Germany") -- this alias table only covers the places they diverge.
+_DXCC_TO_BORDER_NAME = {"United States": "United States of America"}
 
 
 def _load_prefixes(path=None):
@@ -60,6 +68,36 @@ def dx_skip_reason(call, home_call):
     if not home or not theirs:
         return "unknown"
     return "same"
+
+
+def _iso2_for_country(name):
+    """DXCC entity name -> ISO2, via country_borders.py's Natural Earth
+    list (name or admin field). None when unresolvable -- some DXCC
+    entities (Alaska, Hawaii, Puerto Rico...) are counted separately from
+    their sovereign country and have no single matching political-country
+    record; never guess in that case."""
+    if not name:
+        return None
+    target = _DXCC_TO_BORDER_NAME.get(name, name)
+    for c in country_borders.COUNTRIES:
+        if c["name"] == target or c.get("admin") == target:
+            return c.get("iso2")
+    return None
+
+
+def is_neighbor_call(call, home_call):
+    """True only when `call`'s DXCC country shares a land border with
+    `home_call`'s (bin/country_adjacency.json, geodatasource/country-
+    borders) -- used to rank genuine long-distance DX above "easy"
+    neighboring-country DX (e.g. Canada/Mexico for a US station). Fails
+    CLOSED like is_dx_call/is_new_country: an unmapped call, an unmapped
+    home_call, or a DXCC entity with no resolvable political-country ISO2
+    is never claimed as a neighbor."""
+    home_iso2 = _iso2_for_country(country_for_call(home_call))
+    their_iso2 = _iso2_for_country(country_for_call(call))
+    if not home_iso2 or not their_iso2:
+        return False
+    return their_iso2 in country_adjacency.ADJACENCY.get(home_iso2, [])
 
 
 def logged_countries(calls):
