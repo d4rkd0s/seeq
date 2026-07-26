@@ -21,6 +21,37 @@ def _mode_registry_module():
 mode_registry = _mode_registry_module()
 
 
+class TestModeInfo(unittest.TestCase):
+    """MODE_INFO is display-only metadata for the dashboard's mode chooser --
+    separate from MODES (which stays functional/switchable-only, just ft8).
+    It's allowed to list modes that aren't switchable yet (ft4/js8/winlink),
+    so the chooser can show what's coming without pretending they work."""
+
+    def test_every_functional_mode_has_info(self):
+        for name in mode_registry.MODES:
+            self.assertIn(name, mode_registry.MODE_INFO, name)
+
+    def test_ft8_is_available(self):
+        self.assertEqual(mode_registry.MODE_INFO["ft8"]["status"], "available")
+
+    def test_planned_modes_are_not_functional(self):
+        # Planned entries describe modes for planning purposes only -- they
+        # must NOT also appear in MODES, or the boot chooser/mode-switch
+        # machinery would try to actually load a pipeline that doesn't exist.
+        for name, info in mode_registry.MODE_INFO.items():
+            if info["status"] == "planned":
+                self.assertNotIn(name, mode_registry.MODES, name)
+
+    def test_every_entry_has_description_and_protocol_url(self):
+        for name, info in mode_registry.MODE_INFO.items():
+            self.assertTrue(info.get("description"), name)
+            self.assertTrue(info.get("protocol_url", "").startswith("http"), name)
+
+    def test_status_is_available_or_planned(self):
+        for name, info in mode_registry.MODE_INFO.items():
+            self.assertIn(info["status"], ("available", "planned"), name)
+
+
 class TestLoadMode(unittest.TestCase):
     def test_ft8_is_registered(self):
         self.assertIn("ft8", mode_registry.MODES)
