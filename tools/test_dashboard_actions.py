@@ -192,6 +192,62 @@ class TestIdleEngineSnapshot(unittest.TestCase):
         self.assertEqual(set(dashboard.idle_engine_snapshot().keys()), expected_fields)
 
 
+class TestResetStaleEngineState(unittest.TestCase):
+    """reset_stale_engine_state(): the crash/power-loss counterpart to
+    idle_engine_snapshot() above. That test class fixed the STOP-button
+    case (qso.py confirmed not running via an explicit user action); this
+    covers qso.py dying without any stop action at all -- killed, crashed,
+    or the whole box losing power mid-QSO. On the next dashboard.py start,
+    nothing has called _action_unkey() yet, so engine.json can still hold
+    a tx:true/state:'qso' snapshot from before the outage even though the
+    radio itself is idle -- /actions/state would report a phantom PTT-on
+    to anyone glancing at the dashboard. Uses a real tmp file (path is
+    injectable), same pattern as TestQrzLastSyncOk below."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".engine.json")
+        self.path = self.tmp.name
+        self.tmp.close()
+
+    def tearDown(self):
+        try:
+            os.unlink(self.path)
+        except OSError:
+            pass
+
+    def _write(self, obj):
+        with open(self.path, "w") as f:
+            import json
+            json.dump(obj, f)
+
+    def test_qso_running_leaves_engine_json_untouched(self):
+        stale = {"state": "qso", "tx": True, "target": "WS7M"}
+        self._write(stale)
+        changed = dashboard.reset_stale_engine_state(True, path=self.path)
+        self.assertFalse(changed)
+        with open(self.path) as f:
+            import json
+            self.assertEqual(json.load(f), stale)
+
+    def test_qso_not_running_resets_to_idle(self):
+        self._write({"state": "qso", "tx": True, "target": "WS7M"})
+        changed = dashboard.reset_stale_engine_state(False, path=self.path)
+        self.assertTrue(changed)
+        with open(self.path) as f:
+            import json
+            on_disk = json.load(f)
+        self.assertEqual(on_disk, dashboard.idle_engine_snapshot())
+
+    def test_missing_file_is_created_idle(self):
+        os.unlink(self.path)
+        changed = dashboard.reset_stale_engine_state(False, path=self.path)
+        self.assertTrue(changed)
+        with open(self.path) as f:
+            import json
+            self.assertEqual(json.load(f), dashboard.idle_engine_snapshot())
+
+
 class TestQrzLastSyncOk(unittest.TestCase):
     """_qrz_last_sync_ok(): reads the exit-code file the /action/qrz/sync
     spawn wrapper writes (see _action_qrz_sync) once logsync.py finishes --

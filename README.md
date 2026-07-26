@@ -157,20 +157,22 @@ Release. Full release notes: [github.com/d4rkd0s/seeq/releases](https://github.c
 
 | Version | Date | What shipped |
 |---|---|---|
+| [v2.6.2](https://github.com/d4rkd0s/seeq/releases/tag/v2.6.2) | 2026-07-26 | Fix: engine.json left a phantom PTT-on/mid-QSO state on the dashboard after an unclean exit (crash, power loss) — now reset to idle at every dashboard startup if qso.py isn't actually running |
+| [v2.6.1](https://github.com/d4rkd0s/seeq/releases/tag/v2.6.1) | 2026-07-25 | README release-tracking table + roadmap section; release checklist now requires updating both every release |
 | [v2.6.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.6.0) | 2026-07-25 | Moon widget, logo, QRZ auto-sync default-on, Freq Lock auto-correct, decode-list country flags, mode chooser descriptions |
 | [v2.5.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.5.0) | 2026-07-25 | SeeQ logo image assets |
 | [v2.4.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.4.0) | 2026-07-25 | Mode roadmap descriptions (`MODE_INFO`) for the boot chooser |
 | [v2.3.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.3.0) | 2026-07-25 | Sun/moon ephemeris math library |
 | [v2.2.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.2.0) | 2026-07-25 | QRZ upload comment enrichment (SeeQ version + worked country) |
 | [v2.1.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.1.0) | 2026-07-25 | DX-aware candidate ranking for normal (non-DX-only) chase mode |
-| [v2.0.1](https://github.com/d4rkd0s/seeq/releases/tag/v2.0.1) | 2026-07-25 | Fix: TX abort on harmless CAT read-back jitter, not just a real mistune |
-| [v2.0.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.0.0) | 2026-07-23 | Rebrand COTA → SeeQ, strict FCC compliance engine, BandPulse XSS fix, mode-chooser resize |
 
 <details>
-<summary>Earlier releases (v1.0.0 – v1.9.0)</summary>
+<summary>Earlier releases (v1.0.0 – v2.0.1)</summary>
 
 | Version | Date | What shipped |
 |---|---|---|
+| [v2.0.1](https://github.com/d4rkd0s/seeq/releases/tag/v2.0.1) | 2026-07-25 | Fix: TX abort on harmless CAT read-back jitter, not just a real mistune |
+| [v2.0.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.0.0) | 2026-07-23 | Rebrand COTA → SeeQ, strict FCC compliance engine, BandPulse XSS fix, mode-chooser resize |
 | [v1.9.0](https://github.com/d4rkd0s/seeq/releases/tag/v1.9.0) | 2026-07-22 | Live BandPulse HF band-conditions banner + dynamic header status |
 | [v1.8.0](https://github.com/d4rkd0s/seeq/releases/tag/v1.8.0) | 2026-07-20 | M0 mode-switching machinery (registry, deliberate changeover, boot chooser), Call-this-station immediate-start fix, unkey countdown |
 | [v1.7.1](https://github.com/d4rkd0s/seeq/releases/tag/v1.7.1) | 2026-07-19 | Fix: false-success feedback when picking a target while chaser is idle |

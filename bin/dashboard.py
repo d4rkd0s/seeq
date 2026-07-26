@@ -3006,6 +3006,22 @@ def idle_engine_snapshot():
             "unkey_deadline_epoch": None, "tx_msg": None, "tx_offset": None,
             "qso_step": None, "msg_tx_count": None, "snr_floor": None, "new_country": False}
 
+def reset_stale_engine_state(qso_running, path=ENGINE_JSON):
+    """Crash/power-loss counterpart to idle_engine_snapshot() above: that
+    snapshot is normally only written by _action_unkey() when the STOP
+    button confirms qso.py isn't running. If qso.py instead dies with no
+    stop action at all -- killed, crashed, or the box losing power mid-QSO
+    -- engine.json can still hold a tx:true/state:'qso' snapshot from
+    before the outage on the next dashboard.py start. Called once at
+    startup (see __main__ below), mirroring the ACTIVE_MODE_JSON/
+    MODE_SWITCH_JSON stale-state cleanup there: never trust a file left
+    over from a previous run or crash. No-op (returns False) if qso.py is
+    genuinely still running."""
+    if qso_running:
+        return False
+    atomic_write_json(path, idle_engine_snapshot())
+    return True
+
 def log_action(line):
     """Append one audit-trail line to data/actions.log. Never raises."""
     try:
@@ -3751,6 +3767,11 @@ if __name__ == "__main__":
             os.remove(_stale)
         except OSError:
             pass
+    # Same "never trust a file left over from a previous run or crash"
+    # invariant, applied to engine.json: if qso.py isn't actually running,
+    # any tx:true/state:'qso' snapshot on disk is a ghost from an unclean
+    # exit (crash, kill -9, power loss), not reality.
+    reset_stale_engine_state(_proc_running(QSO_PY))
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("127.0.0.1", PORT), H) as srv:
         print(f"SeeQ dashboard: http://localhost:{PORT}"
