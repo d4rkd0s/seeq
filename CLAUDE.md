@@ -92,11 +92,19 @@ or https://github.com/d4rkd0s/seeq/releases before bumping.
 3. Bump version by semver: patch for fixes, **minor for new features** (the common case here —
    most sessions add dashboard/UI capability), major only for a breaking change to the TX safety
    contract or config format.
-4. `git add <specific files>` (never `-A`/`.`) → commit → `git tag -a vX.Y.Z -m "..."` →
+4. **Add a row to README.md's `## Releases` table** (version, date, one-line "what shipped")
+   *before* committing, so the version bump and its changelog entry land in the same commit —
+   never a separate follow-up. Newest release goes at the top of the visible table; once the
+   visible table would exceed ~8 rows, move the oldest visible row into the `<details>` block
+   below it instead of letting the table grow unbounded. If this release changes what's next
+   (a roadmap doc's next milestone lands, or the plan changes), update the `## Roadmap` section
+   too — that section must always reflect the current state of `docs/ROADMAP.md`/
+   `docs/MODES-ROADMAP.md`, not a stale snapshot from whenever it was last touched.
+5. `git add <specific files>` (never `-A`/`.`) → commit → `git tag -a vX.Y.Z -m "..."` →
    `git push origin master` → `git push origin vX.Y.Z`.
-5. `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."` — GitHub auto-attaches the zip/tar.gz
+6. `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."` — GitHub auto-attaches the zip/tar.gz
    source archives to every tag by default, nothing extra to configure for that.
-6. Verify server-side, not just locally — pull the pushed tag's tree via the GitHub API and grep
+7. Verify server-side, not just locally — pull the pushed tag's tree via the GitHub API and grep
    raw file contents for the callsign/grid pattern above. Trust but verify what's actually public.
 
 ## Operating

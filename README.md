@@ -150,6 +150,64 @@ by Gary Hinson ZL2IFB:
 - Stalled-QSO recovery, slot-parity tracking, and periodic breathers so it
   never dominates a frequency
 
+## Releases
+
+SeeQ ships early and often — every merged change gets a semver tag and a GitHub
+Release. Full release notes: [github.com/d4rkd0s/seeq/releases](https://github.com/d4rkd0s/seeq/releases).
+
+| Version | Date | What shipped |
+|---|---|---|
+| [v2.6.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.6.0) | 2026-07-25 | Moon widget, logo, QRZ auto-sync default-on, Freq Lock auto-correct, decode-list country flags, mode chooser descriptions |
+| [v2.5.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.5.0) | 2026-07-25 | SeeQ logo image assets |
+| [v2.4.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.4.0) | 2026-07-25 | Mode roadmap descriptions (`MODE_INFO`) for the boot chooser |
+| [v2.3.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.3.0) | 2026-07-25 | Sun/moon ephemeris math library |
+| [v2.2.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.2.0) | 2026-07-25 | QRZ upload comment enrichment (SeeQ version + worked country) |
+| [v2.1.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.1.0) | 2026-07-25 | DX-aware candidate ranking for normal (non-DX-only) chase mode |
+| [v2.0.1](https://github.com/d4rkd0s/seeq/releases/tag/v2.0.1) | 2026-07-25 | Fix: TX abort on harmless CAT read-back jitter, not just a real mistune |
+| [v2.0.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.0.0) | 2026-07-23 | Rebrand COTA → SeeQ, strict FCC compliance engine, BandPulse XSS fix, mode-chooser resize |
+
+<details>
+<summary>Earlier releases (v1.0.0 – v1.9.0)</summary>
+
+| Version | Date | What shipped |
+|---|---|---|
+| [v1.9.0](https://github.com/d4rkd0s/seeq/releases/tag/v1.9.0) | 2026-07-22 | Live BandPulse HF band-conditions banner + dynamic header status |
+| [v1.8.0](https://github.com/d4rkd0s/seeq/releases/tag/v1.8.0) | 2026-07-20 | M0 mode-switching machinery (registry, deliberate changeover, boot chooser), Call-this-station immediate-start fix, unkey countdown |
+| [v1.7.1](https://github.com/d4rkd0s/seeq/releases/tag/v1.7.1) | 2026-07-19 | Fix: false-success feedback when picking a target while chaser is idle |
+| [v1.7.0](https://github.com/d4rkd0s/seeq/releases/tag/v1.7.0) | 2026-07-19 | Map revamp — country/state borders, pan/zoom, clickable dots, country card |
+| [v1.6.0](https://github.com/d4rkd0s/seeq/releases/tag/v1.6.0) | 2026-07-19 | Shorten retry budget on current target when another station is calling us |
+| [v1.5.0](https://github.com/d4rkd0s/seeq/releases/tag/v1.5.0) | 2026-07-19 | Live SNR-floor slider; cockpit state timing + new-country flash fixes |
+| [v1.4.1](https://github.com/d4rkd0s/seeq/releases/tag/v1.4.1) | 2026-07-19 | Map TX-line staleness/gridless-target bugfix, DX skip-reason logging split |
+| [v1.4.0](https://github.com/d4rkd0s/seeq/releases/tag/v1.4.0) | 2026-07-18 | DX Mode: country/DXCC candidate filter + CQ-DX un-gate, toggle + confirm modal |
+| [v1.3.2](https://github.com/d4rkd0s/seeq/releases/tag/v1.3.2) | 2026-07-18 | DXCC prefix gap-fill, repo-wide TDD mandate |
+| [v1.3.1](https://github.com/d4rkd0s/seeq/releases/tag/v1.3.1) | 2026-07-18 | Real dashboard screenshots in the README |
+| [v1.3.0](https://github.com/d4rkd0s/seeq/releases/tag/v1.3.0) | 2026-07-18 | Fix CI badge (numpy/interpreter mismatch), +19 pipeline tests |
+| [v1.2.2](https://github.com/d4rkd0s/seeq/releases/tag/v1.2.2) | 2026-07-18 | Explicit "Claude never transmits" framing |
+| [v1.2.1](https://github.com/d4rkd0s/seeq/releases/tag/v1.2.1) | 2026-07-18 | Open-source polish — screenshot slot, MISSION.md, OS requirements |
+| [v1.2.0](https://github.com/d4rkd0s/seeq/releases/tag/v1.2.0) | 2026-07-12 | QRZ Logbook sync + confirmation-aware logbook |
+| [v1.1.0](https://github.com/d4rkd0s/seeq/releases/tag/v1.1.0) | 2026-07-11 | Station config UI, TX-flow fixes, live-session UX polish |
+| [v1.0.0](https://github.com/d4rkd0s/seeq/releases/tag/v1.0.0) | 2026-07-11 | First tagged release — target selection, rotating decode logs, TX transparency + station config UI |
+
+</details>
+
+## Roadmap — what's coming next
+
+Full detail lives in [docs/ROADMAP.md](docs/ROADMAP.md) (the $0-cost build process) and
+[docs/MODES-ROADMAP.md](docs/MODES-ROADMAP.md) (which digital modes SeeQ drives, and why).
+
+- **Next up — JS8 mode (M1).** The mode-switching seam (registry, deliberate
+  power-down/power-up changeover, boot chooser) shipped in v1.8.0 specifically to make
+  this possible. JS8 adds free-text messaging and store-and-forward alongside FT8 — new
+  engine, new dashboard panel, same frozen TX-safety chain and control-operator sign-off
+  FT8 had before its first on-air key-up.
+- **After that — email over radio (Winlink, M2).** Design already researched and settled
+  (Pat + ardopcf + a shared `rigctld`), not yet installed — see
+  [`skills/email-over-radio.md`](../skills/email-over-radio.md) in the parent `~/Radio` tree.
+- **Backlog:** UI-string translation for non-US operators (the DX/candidate-ranking logic
+  itself is already callsign-derived and works for any country out of the box — this is
+  display-string i18n only); community polish (issue templates, demo GIF, forum
+  announcement).
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Copyright 2026 Logan Schmidt.
