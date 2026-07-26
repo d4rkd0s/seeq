@@ -15,6 +15,12 @@ LICENSE_CLASS=general            # drives bin/band_plan.py's strict FCC complian
                                  # before setting anything else.
 MYGRID=AA00                     # first 4 chars of YOUR Maidenhead locator (AA00aa -> AA00); FT8 messages carry 4
 DIAL_HZ=14074000                # FT8 watering hole, Hz (40 m = 7074000, 20 m = 14074000)
+DIAL_TOLERANCE_HZ=100           # +/- Hz allowed between DIAL_HZ and the rig's CAT read-back
+                                 # before TX aborts (transmit()'s frequency read-back safety
+                                 # check, CLAUDE.md rule #2). Absorbs harmless CAT read-back
+                                 # jitter/rounding -- real rigs can read back a few/tens of Hz
+                                 # off a commanded frequency. Still >100x tighter than the kHz-
+                                 # scale mismatch that check actually exists to catch.
 BAND=20m                        # must match DIAL_HZ; used for ADIF logging + display
 TX_PWR=5                        # watts — update when you change your rig's power setting!
 

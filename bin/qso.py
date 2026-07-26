@@ -32,6 +32,14 @@ RIGCTL  = ["rigctl", "-m", _C.get("RIG_MODEL", "3060"), "-r", CAT,
 SINK    = _C.get("PA_SINK",
                  "alsa_output.usb-C-Media_Electronics_Inc._USB_Audio_Device-00.analog-stereo")
 DIAL    = int(_C.get("DIAL_HZ", 14074000))
+# Real rigs (this station's G90 included) can CAT-read back a few Hz/tens of
+# Hz off a commanded frequency -- rounding/quantization, not mistuning. A
+# small tolerance here absorbs that without weakening rule #2's actual
+# purpose (catching a genuinely wrong dial/band, always off by kHz) -- see
+# dial_ok(). Exposed as a config key, not a buried constant, so it stays
+# visible/auditable per CLAUDE.md's "control-operator review" bar for
+# anything touching the TX safety chain.
+DIAL_TOLERANCE_HZ = int(_C.get("DIAL_TOLERANCE_HZ", 100))
 MYCALL, MYGRID = _C.get("MYCALL", "N0CALL"), _C.get("MYGRID", "AA00")
 BAND    = _C.get("BAND", "20m")
 MAX_REPEAT = int(_C.get("MAX_REPEAT", 6))    # hard cap: no more than 6 similar transmits
@@ -437,6 +445,18 @@ def compute_tx_boundary(t, our_parity):
     return boundary
 
 
+def dial_ok(cat_freq, dial_hz, tolerance_hz):
+    """True when the CAT-reported `cat_freq` (str/int/None, Hz) is within
+    `tolerance_hz` of the configured `dial_hz` -- the actual gate behind
+    transmit()'s frequency read-back safety check. Fails CLOSED like every
+    other safety predicate in this file: an unparseable/missing cat_freq is
+    never treated as a match, TX still aborts. Pure; see
+    tools/test_sequencer.py."""
+    try:
+        return abs(int(cat_freq) - dial_hz) <= tolerance_hz
+    except (TypeError, ValueError):
+        return False
+
 def _tx_waterfall(wav):
     """Best-effort spectrogram of the TX audio we're about to send, for the
     dashboard's TX-transparency panel. Display-only: never raises, never
@@ -461,9 +481,11 @@ def transmit(msg, f0, tx_count, our_parity):
     synth_wav(msg, f0, wav)
     _tx_waterfall(wav)
     f = rig("f")
-    if f != str(DIAL):
-        ev(f"ABORT TX: dial reads {f}, expected {DIAL} — NOT keying")
-        write_engine_state(state="tx_abort", msg=f"dial mismatch: reads {f}, expected {DIAL}", next_tx_epoch=None)
+    if not dial_ok(f, DIAL, DIAL_TOLERANCE_HZ):
+        ev(f"ABORT TX: dial reads {f}, expected {DIAL} (±{DIAL_TOLERANCE_HZ} Hz) — NOT keying")
+        write_engine_state(state="tx_abort",
+                            msg=f"dial mismatch: reads {f}, expected {DIAL} (±{DIAL_TOLERANCE_HZ} Hz)",
+                            next_tx_epoch=None)
         return False
     # choose the key-up moment: our-parity slot, on time or <=1.8 s late
     boundary = compute_tx_boundary(now(), our_parity)

@@ -181,6 +181,46 @@ class TestTxBoundary(unittest.TestCase):
                 self.assertGreaterEqual(b, qso.slot_start(t))
 
 
+class TestDialOk(unittest.TestCase):
+    """dial_ok(cat_freq, dial_hz, tolerance_hz) — pure extraction of
+    transmit()'s frequency read-back safety gate (CLAUDE.md rule #2:
+    "Frequency read-back before every key-up"). A small tolerance absorbs
+    harmless CAT read-back jitter/rounding (real rigs, incl. this station's
+    G90, can read back a few Hz/tens of Hz off a commanded frequency) without
+    weakening what the check actually guards against: a genuinely wrong
+    dial/band, which is always off by kHz, not Hz."""
+
+    def test_exact_match_ok(self):
+        self.assertTrue(qso.dial_ok("14074000", 14074000, 100))
+
+    def test_within_tolerance_ok(self):
+        self.assertTrue(qso.dial_ok("14074010", 14074000, 100))
+
+    def test_at_tolerance_edge_ok(self):
+        self.assertTrue(qso.dial_ok("14074100", 14074000, 100))
+
+    def test_just_outside_tolerance_rejected(self):
+        self.assertFalse(qso.dial_ok("14074101", 14074000, 100))
+
+    def test_below_tolerance_also_checked(self):
+        self.assertTrue(qso.dial_ok("14073990", 14074000, 100))
+        self.assertFalse(qso.dial_ok("14073800", 14074000, 100))
+
+    def test_real_mistune_still_rejected(self):
+        # the actual incident this check exists for: whole band segments
+        # off, not a rounding artifact.
+        self.assertFalse(qso.dial_ok("14070000", 14074000, 100))
+
+    def test_zero_tolerance_requires_exact_match(self):
+        self.assertFalse(qso.dial_ok("14074010", 14074000, 0))
+        self.assertTrue(qso.dial_ok("14074000", 14074000, 0))
+
+    def test_unparseable_cat_freq_fails_closed(self):
+        self.assertFalse(qso.dial_ok("", 14074000, 100))
+        self.assertFalse(qso.dial_ok(None, 14074000, 100))
+        self.assertFalse(qso.dial_ok("not-a-number", 14074000, 100))
+
+
 class TestTargetSelection(unittest.TestCase):
     """select_target(cqs, requested_call) — honors a dashboard "request this
     call" click over the automatic SNR/pileup ranking, WITHOUT bypassing the
