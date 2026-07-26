@@ -493,6 +493,11 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYC
  .widget[data-key=js8inbox]{width:560px;height:280px}
  /* The honest-limitation notice from watchdog.py, surfaced where the operator
     actually is. Amber (attention), not red -- red is reserved for live TX. */
+ /* Header mode indicator, now a control rather than a label -- without it
+    there is no way to leave a mode short of restarting the dashboard. */
+ #hModeBtn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:5px;
+  padding:1px 7px;font:inherit;font-size:inherit;cursor:pointer;line-height:1.4}
+ #hModeBtn:hover{border-color:#58a6ff;color:#58a6ff}
  .js8warn{margin-top:8px;padding:8px 10px;border:1px solid #e3b341;border-radius:6px;
   background:#1b1710;color:#e3b341;font-size:12px;line-height:1.5}
  .js8text,.js8input{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;
@@ -524,7 +529,7 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYC
 </style></head><body>
 <div id=newCountryGlow></div>
 <div id=newCountryBanner><div class=newCountryBannerTitle>✨ NEW COUNTRY ✨</div><div id=newCountryBannerBody class=newCountryBannerBody></div></div>
-<h1><img id=hdrLogo src="/assets/seeq-logo.png" alt="SeeQ"> <small>— __MYCALL__ · __MYGRID__ · Mode: <span id=hMode>—</span> · <span id=hStatus>—</span></small> <a id=bpBanner href="https://bandpulse.net" target=_blank rel=noopener style="display:none" title="live HF band conditions via bandpulse.net — click to see all bands"><span class=bpSep>·</span><span id=bpPills class=bpPills></span></a> <span id=stale>⚠ STALE — rx-loop not updating</span></h1>
+<h1><img id=hdrLogo src="/assets/seeq-logo.png" alt="SeeQ"> <small>— __MYCALL__ · __MYGRID__ · Mode: <button id=hModeBtn type=button title="click to switch mode"><span id=hMode>—</span> ⇄</button> · <span id=hStatus>—</span></small> <a id=bpBanner href="https://bandpulse.net" target=_blank rel=noopener style="display:none" title="live HF band conditions via bandpulse.net — click to see all bands"><span class=bpSep>·</span><span id=bpPills class=bpPills></span></a> <span id=stale>⚠ STALE — rx-loop not updating</span></h1>
 <div id=cockpit>
  <div class=cpitem><span class=cpk>STATE</span><span class="cpv st-" id=cpState>—</span></div>
  <div class=cpitem><span class=cpk>CALLING</span><span class=cpv id=cpCalling title="where the current target is (DXCC-style prefix lookup, best-effort)">—</span></div>
@@ -824,10 +829,13 @@ chmod 600 ~/.config/cota/qrz.key</pre>
 <div id=modeChooser class=modalOverlay style="display:none">
  <div class=modalBox>
   <img id=modeChooserLogo src="/assets/seeq-logo.png" alt="SeeQ">
-  <div class=modalTitle style="text-align:center">Welcome — select a mode to begin</div>
+  <div class=modalTitle style="text-align:center" id=modeChooserTitle>Welcome — select a mode to begin</div>
   <div class=modalBody>
    <div id=modeChooserButtons></div>
    <div id=modeChooserStatus style="display:none;margin-top:10px;color:#8b949e"></div>
+   <div style="text-align:center;margin-top:12px">
+    <button id=modeChooserCancel class=actionbtn style="display:none">Cancel — stay on the current mode</button>
+   </div>
   </div>
  </div>
 </div>
@@ -2327,8 +2335,14 @@ async function startModeSwitch(mode){
  const statusEl=document.getElementById('modeChooserStatus');
  statusEl.style.display='block';
  statusEl.textContent=`starting ${mode}…`;
+ // Hold the chooser open through the whole changeover -- it's a deliberate
+ // 30-45s sequenced stop/start, and its staged progress is the only feedback.
+ MODE_SWITCH_INFLIGHT=true;
  const r=await postAction('/action/mode/switch',{mode});
- if(!r.ok) statusEl.textContent=`request failed: ${(r.body&&r.body.error)||r.error||r.status}`;
+ if(!r.ok){
+  MODE_SWITCH_INFLIGHT=false;
+  statusEl.textContent=`request failed: ${(r.body&&r.body.error)||r.error||r.status}`;
+ }
 }
 function modeCardHtml(key, m){
  const available=m.status==='available';
@@ -2357,6 +2371,20 @@ function modeLabelFor(activeMode, registry){
  if(!activeMode) return '—';
  return (registry[activeMode]&&registry[activeMode].label)||activeMode;
 }
+/* Whether the mode chooser should be on screen. Pure so it can be tested --
+   getting it wrong either traps you in the overlay or, as originally shipped,
+   makes switching mode impossible without restarting the dashboard.
+     - no active mode  -> always show (boot; ground rule #5, never silently
+                          default into a mode)
+     - switch running  -> keep showing, so the staged progress is visible
+     - user asked      -> show, even though a mode is already active
+   `forced` is what the header's mode button sets. */
+function shouldShowChooser(activeMode, forced, inflight){
+ return !activeMode || !!forced || !!inflight;
+}
+let MODE_CHOOSER_FORCED=false, MODE_SWITCH_INFLIGHT=false;
+function openModeChooser(){ MODE_CHOOSER_FORCED=true; pollModeState(); }
+function closeModeChooser(){ MODE_CHOOSER_FORCED=false; MODE_SWITCH_INFLIGHT=false; pollModeState(); }
 async function pollModeState(){
  let s;
  try{ s=await (await fetch('/mode/state?t='+Date.now())).json(); }catch(e){ return; }
@@ -2365,8 +2393,19 @@ async function pollModeState(){
  if(s.switch){
   statusEl.style.display='block';
   statusEl.textContent=modeStageLabel(s.switch);
+  const stage=s.switch.stage;
+  if(stage==='done'||stage==='already_active'){ MODE_SWITCH_INFLIGHT=false; MODE_CHOOSER_FORCED=false; }
+  else if(stage==='error'){ MODE_SWITCH_INFLIGHT=false; }   // keep it open so the error is readable
  }
- chooser.style.display=s.active_mode?'none':'flex';
+ chooser.style.display=shouldShowChooser(s.active_mode,MODE_CHOOSER_FORCED,MODE_SWITCH_INFLIGHT)?'flex':'none';
+ /* Cancel only exists once a mode is active -- at boot there's nothing to go
+    back to, and dismissing it would leave the dashboard in no mode at all. */
+ const cancel=document.getElementById('modeChooserCancel');
+ if(cancel) cancel.style.display=s.active_mode?'inline-block':'none';
+ const title=document.getElementById('modeChooserTitle');
+ if(title) title.textContent=s.active_mode?'Switch mode':'Welcome — select a mode to begin';
+ const btn=document.getElementById('hModeBtn');
+ if(btn) btn.title=s.active_mode?'click to switch mode':'no mode selected yet';
  document.getElementById('hMode').textContent=modeLabelFor(s.active_mode,MODE_REGISTRY);
  applyModeVisibility(s.active_mode);
 }
@@ -2596,8 +2635,15 @@ function wireActions(){
   const btn=document.getElementById('btnTune30');
   if(btn.disabled) return;
   btn.disabled=true;
+  // Suppress Freq Lock FIRST, before unkeying. During a tune cycle the
+  // operator moves off the calling frequency on purpose, and freq lock would
+  // otherwise haul the radio back onto it -- with a tuning carrier up. Server
+  // side is the real guard (it owns the correction and survives this tab
+  // closing); disarming the local poll too just stops pointless traffic.
+  await postAction('/action/tune/begin',{seconds:30});
+  freqLockDisarm();
   const r=await postAction('/action/unkey',{});
-  setActionsMsg(r.ok?'stopped for TUNE — 30s window starting':'stop failed: '+(r.body.error||r.error||r.status));
+  setActionsMsg(r.ok?'stopped for TUNE — 30s window, freq lock paused':'stop failed: '+(r.body.error||r.error||r.status));
   refreshActionsState();
   let secs=30;
   btn.textContent=`TUNING… ${secs}s`;
@@ -2607,6 +2653,9 @@ function wireActions(){
     clearInterval(iv);
     btn.textContent='TUNE';
     btn.disabled=false;
+    // Re-arm freq lock only if the operator had it on to begin with; the
+    // server-side window has expired by now either way.
+    if(document.getElementById('freqLockToggle').checked) freqLockArm();
     setActionsMsg('tune window done — click Automatic CQ when ready');
    }else{
     btn.textContent=`TUNING… ${secs}s`;
@@ -3092,6 +3141,13 @@ function wireJs8(){
   if(r.ok){ document.getElementById('js8InboxText').value=''; }
  });
 }
+function wireModeChooser(){
+ const btn=document.getElementById('hModeBtn');
+ if(btn) btn.addEventListener('click',openModeChooser);
+ const cancel=document.getElementById('modeChooserCancel');
+ if(cancel) cancel.addEventListener('click',closeModeChooser);
+}
+wireModeChooser();
 wireHelp();
 document.getElementById('evRaw').addEventListener('change',renderEvents);
 document.getElementById('txwf').addEventListener('error',function(){this.style.display='none';});
@@ -3479,6 +3535,52 @@ def _validate_mode_switch(body):
 
 JS8_MAX_TEXT = 400
 
+# ---- TUNE window -----------------------------------------------------------
+# While the operator is running a manual ATU tune cycle they deliberately move
+# slightly off the calling frequency -- you don't key a tuning carrier on top
+# of everyone else working the band. Freq Lock's automatic retuning must not
+# fight that: it would haul the radio back onto the calling frequency, every
+# 5s, while a carrier is up.
+#
+# Recorded server-side with an expiry rather than tracked in the browser, for
+# two reasons: the correction happens server-side, so that's where the guard
+# belongs; and a tab that closes (or a laptop that sleeps) mid-tune must not
+# leave the radio unguarded or freq lock suppressed forever.
+TUNE_WINDOW_JSON = os.path.join(DATA, "tune-window.json")
+TUNE_WINDOW_DEFAULT_S = 30
+TUNE_WINDOW_MAX_S = 300
+
+
+def _read_tune_until(path=None):
+    """Epoch seconds the current tune window ends, or 0. Never raises."""
+    try:
+        with open(path or TUNE_WINDOW_JSON) as f:
+            return float(json.load(f).get("until_epoch") or 0)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 0.0
+
+
+def _begin_tune_window(seconds=TUNE_WINDOW_DEFAULT_S, now=None, path=None):
+    """Open (or extend) the tune window. Returns its end time."""
+    try:
+        secs = int(seconds)
+    except (TypeError, ValueError):
+        secs = TUNE_WINDOW_DEFAULT_S
+    if secs <= 0:
+        secs = TUNE_WINDOW_DEFAULT_S
+    secs = min(secs, TUNE_WINDOW_MAX_S)
+    until = (time.time() if now is None else now) + secs
+    atomic_write_json(path or TUNE_WINDOW_JSON,
+                       {"until_epoch": until, "seconds": secs})
+    return until
+
+
+def _tune_window_active(now=None, path=None):
+    """True while a manual TUNE cycle is in progress. Expiry-based, so it
+    closes itself even if nothing ever calls an 'end' endpoint."""
+    now = time.time() if now is None else now
+    return now < _read_tune_until(path)
+
 
 def _validate_js8_send(body):
     """Pure validation for /action/js8/send. (text, None) or (None, error).
@@ -3685,6 +3787,8 @@ class H(http.server.SimpleHTTPRequestHandler):
                 self._action_chase_stop()
             elif path == "/action/unkey":
                 self._action_unkey()
+            elif path == "/action/tune/begin":
+                self._action_tune_begin(body)
             elif path == "/action/mode/switch":
                 self._action_mode_switch(body)
             elif path == "/action/js8/start":
@@ -3851,6 +3955,20 @@ class H(http.server.SimpleHTTPRequestHandler):
                          os.path.join(DATA, "mode-switch.log"))
         log_action(f"mode/switch: spawned python3 {MODE_SWITCH_PY} switch {mode}")
         self._ok({"started": True})
+
+    def _action_tune_begin(self, body):
+        """Open the TUNE window, suppressing Freq Lock's automatic retuning
+        while the operator runs a manual ATU tune cycle off-frequency.
+
+        Deliberately does NOT touch the radio: TUNE's actual stop+unkey is
+        /action/unkey, which is already tested and frozen. This only records
+        'a human is tuning right now, keep automation off the VFO'. Honoured
+        even in DRYRUN -- suppressing an automatic action is always safe, and
+        it keeps dry-run behaviour honest about the sequencing."""
+        until = _begin_tune_window(body.get("seconds", TUNE_WINDOW_DEFAULT_S))
+        secs = round(until - time.time())
+        log_action(f"tune/begin: freq lock suppressed for ~{secs}s (manual TUNE cycle)")
+        self._ok({"tune_window_s": secs, "until_epoch": until})
 
     def _action_js8(self, body, what):
         """JS8 panel actions. All the real logic lives in bin/modes/js8/ --
@@ -4086,6 +4204,13 @@ class H(http.server.SimpleHTTPRequestHandler):
         chasing -- returns 200 with skipped=... every such tick, not 409."""
         if DRYRUN:
             return self._ok({"skipped": "dryrun", "locked": None})
+        if _tune_window_active():
+            # The operator is mid-ATU-tune and has moved off the calling
+            # frequency ON PURPOSE. Correcting that would fight their hand on
+            # the VFO and put a tuning carrier back onto the calling
+            # frequency. Never auto-retune during a TUNE window.
+            return self._ok({"skipped": "TUNE in progress — freq lock paused",
+                              "locked": None})
         if _proc_running(QSO_PY):
             return self._ok({"skipped": "chaser running — freq lock paused", "locked": None})
         expected_hz = CONFIG.get("dial_hz") or 0

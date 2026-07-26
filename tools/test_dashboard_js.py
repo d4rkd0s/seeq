@@ -1448,6 +1448,56 @@ class TestTargetPickMessage(unittest.TestCase):
         self.assertIn("failed", r["msg"].lower())
 
 
+def extract_should_show_chooser_js():
+    page = _dashboard_module().PAGE
+    start = page.index("function shouldShowChooser(activeMode, forced, inflight){")
+    end = page.index("\n}", start) + 2
+    return page[start:end]
+
+
+def run_should_show_chooser(cases):
+    """Evaluate the real shouldShowChooser() for a list of
+    [activeMode, forced, inflight] triples."""
+    script = extract_should_show_chooser_js() + (
+        "\nconst __c = %s;"
+        "\nprocess.stdout.write(JSON.stringify(__c.map(a => shouldShowChooser(a[0],a[1],a[2]))));"
+    ) % json.dumps(cases)
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise AssertionError(f"node failed: {r.stderr.strip()}")
+    return json.loads(r.stdout)
+
+
+class TestShouldShowChooser(unittest.TestCase):
+    """Mode chooser visibility. As first shipped this was just
+    `activeMode ? hide : show`, which meant that once a mode was active there
+    was no way to reach the chooser again -- switching mode required
+    restarting the dashboard. These pin the corrected rules."""
+
+    def test_boot_with_no_mode_always_shows(self):
+        # Ground rule: never silently default into a mode.
+        self.assertEqual(run_should_show_chooser([[None, False, False]]), [True])
+
+    def test_active_mode_hides_it_by_default(self):
+        self.assertEqual(run_should_show_chooser([["ft8", False, False]]), [False])
+
+    def test_user_can_reopen_it_while_a_mode_is_active(self):
+        # The header mode button sets `forced`. This is the regression the
+        # whole change exists for.
+        self.assertEqual(run_should_show_chooser([["ft8", True, False]]), [True])
+
+    def test_stays_open_through_a_changeover(self):
+        # The switch is a deliberate 30-45s sequence; its staged progress is
+        # the only feedback, so the overlay must not vanish mid-way.
+        self.assertEqual(run_should_show_chooser([["ft8", False, True]]), [True])
+
+    def test_boot_cannot_be_dismissed(self):
+        # forced=false + no active mode must still show: there is nothing to
+        # fall back to, so a dismissable boot chooser would strand the UI.
+        self.assertEqual(run_should_show_chooser([[None, False, False],
+                                                   [None, True, False]]), [True, True])
+
+
 def extract_mode_visibility_js():
     """The real applyModeVisibility() source, verbatim from PAGE."""
     page = _dashboard_module().PAGE

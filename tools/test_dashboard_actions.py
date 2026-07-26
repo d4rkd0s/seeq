@@ -142,6 +142,67 @@ class TestValidateModeSwitch(unittest.TestCase):
         self.assertEqual(err, "mode required")
 
 
+class TestTuneWindow(unittest.TestCase):
+    """The TUNE window must suppress Freq Lock's automatic retuning.
+
+    TUNE stops the chaser and opens a 30 s window for a manual ATU tune cycle,
+    during which the operator deliberately moves slightly off the calling
+    frequency -- you don't key a tuning carrier on top of everyone else.
+
+    Freq Lock's only skip condition used to be "qso.py is running", and TUNE
+    kills qso.py. So for the entire tune window Freq Lock was live, polling
+    every 5 s, and would drag the radio back onto the calling frequency while
+    the operator was keying a tuning carrier. Automatic correction must never
+    fight the operator's hand on the VFO.
+    """
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp()
+        self.path = os.path.join(self.tmp, "tune-window.json")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_no_file_means_no_window(self):
+        self.assertFalse(dashboard._tune_window_active(now=1000.0, path=self.path))
+
+    def test_open_window_is_active(self):
+        dashboard._begin_tune_window(30, now=1000.0, path=self.path)
+        self.assertTrue(dashboard._tune_window_active(now=1005.0, path=self.path))
+
+    def test_window_expires_on_its_own(self):
+        # Nothing has to remember to close it -- a browser tab that vanishes
+        # mid-tune must not leave freq lock suppressed forever.
+        dashboard._begin_tune_window(30, now=1000.0, path=self.path)
+        self.assertFalse(dashboard._tune_window_active(now=1031.0, path=self.path))
+
+    def test_boundary_is_not_still_active(self):
+        dashboard._begin_tune_window(30, now=1000.0, path=self.path)
+        self.assertFalse(dashboard._tune_window_active(now=1030.0, path=self.path))
+
+    def test_corrupt_file_does_not_suppress_forever(self):
+        # Fail toward the normal behaviour, not toward permanently disabling
+        # a safety feature.
+        with open(self.path, "w") as f:
+            f.write("{not json")
+        self.assertFalse(dashboard._tune_window_active(now=1000.0, path=self.path))
+
+    def test_duration_is_capped(self):
+        # A stuck or malicious request must not disable freq lock for hours.
+        dashboard._begin_tune_window(99999, now=1000.0, path=self.path)
+        self.assertLessEqual(
+            dashboard._read_tune_until(self.path) - 1000.0,
+            dashboard.TUNE_WINDOW_MAX_S)
+
+    def test_nonsense_duration_falls_back_to_the_default(self):
+        for bad in (None, 0, -5, "abc"):
+            dashboard._begin_tune_window(bad, now=1000.0, path=self.path)
+            self.assertEqual(dashboard._read_tune_until(self.path),
+                             1000.0 + dashboard.TUNE_WINDOW_DEFAULT_S, bad)
+
+
 class TestValidateJs8Send(unittest.TestCase):
     """_validate_js8_send(): the dashboard-side half of the transmit gate.
 
