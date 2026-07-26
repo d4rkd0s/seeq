@@ -156,5 +156,110 @@ class TestFlagCodeRegex(unittest.TestCase):
         self.assertIsNone(dashboard._FLAG_CODE_RE.match("usa"))
 
 
+class TestIdleEngineSnapshot(unittest.TestCase):
+    """idle_engine_snapshot(): the safe 'nothing is happening' shape
+    _action_unkey() writes to data/engine.json once qso.py is confirmed
+    not running, so a killed/crashed chase run can't leave a stale
+    tx:true/state:'calling' snapshot on disk forever (see the STOP-button-
+    stuck-on-air bug this fixes -- also gated client-side by txIsLive() in
+    PAGE's JS, but the file itself should reflect reality too)."""
+
+    def test_tx_is_false(self):
+        self.assertFalse(dashboard.idle_engine_snapshot()["tx"])
+
+    def test_state_is_idle_not_qsos_own_init(self):
+        # Distinct from qso.py's own startup default ("init", meaning
+        # "never run yet") -- "idle" means "explicitly stopped after
+        # running", a meaningful difference if anything ever inspects it.
+        self.assertEqual(dashboard.idle_engine_snapshot()["state"], "idle")
+
+    def test_never_looks_like_an_active_target(self):
+        # txLineActive()/txIsLive() in PAGE's JS gate on state in
+        # ('calling','qso') plus a target/tx -- the idle snapshot must
+        # fail every one of those checks, not just the obvious tx field.
+        snap = dashboard.idle_engine_snapshot()
+        self.assertIsNone(snap["target"])
+        self.assertNotIn(snap["state"], ("calling", "qso"))
+        self.assertIsNone(snap["unkey_deadline_epoch"])
+
+    def test_has_every_field_qso_py_writes(self):
+        # Must round-trip through anything reading a real qso.py-written
+        # engine.json without a KeyError -- same field set as qso.py's own
+        # _engine dict (see bin/qso.py), just idle values.
+        expected_fields = {"utc", "state", "target", "grid", "tx", "dx_mode", "msg",
+                            "offset", "next_tx_epoch", "unkey_deadline_epoch", "tx_msg",
+                            "tx_offset", "qso_step", "msg_tx_count", "snr_floor", "new_country"}
+        self.assertEqual(set(dashboard.idle_engine_snapshot().keys()), expected_fields)
+
+
+class TestQrzLastSyncOk(unittest.TestCase):
+    """_qrz_last_sync_ok(): reads the exit-code file the /action/qrz/sync
+    spawn wrapper writes (see _action_qrz_sync) once logsync.py finishes --
+    drives the QRZ widget's red-border failure flag. Uses a real tmp file
+    (path is injectable) rather than mocking open()."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".qrz-exit")
+        self.path = self.tmp.name
+        self.tmp.close()
+
+    def tearDown(self):
+        try:
+            os.unlink(self.path)
+        except OSError:
+            pass
+
+    def _write(self, content):
+        with open(self.path, "w") as f:
+            f.write(content)
+
+    def test_exit_zero_is_ok(self):
+        self._write("0")
+        ok, at = dashboard._qrz_last_sync_ok(self.path)
+        self.assertTrue(ok)
+        self.assertIsNotNone(at)
+
+    def test_exit_nonzero_is_not_ok(self):
+        self._write("1")
+        ok, at = dashboard._qrz_last_sync_ok(self.path)
+        self.assertFalse(ok)
+        self.assertIsNotNone(at)
+
+    def test_missing_file_is_unknown(self):
+        os.unlink(self.path)
+        ok, at = dashboard._qrz_last_sync_ok(self.path)
+        self.assertIsNone(ok)
+        self.assertIsNone(at)
+
+    def test_malformed_content_is_unknown(self):
+        self._write("not-a-number")
+        ok, at = dashboard._qrz_last_sync_ok(self.path)
+        self.assertIsNone(ok)
+        self.assertIsNone(at)
+
+
+class TestRetuneResultNote(unittest.TestCase):
+    """_retune_result_note(): pure formatting of /action/station/set's
+    response note, given whether the post-save CAT retune was confirmed via
+    read-back -- extracted so it's testable without mocking subprocess."""
+
+    def test_confirmed_retune_mentions_readback(self):
+        note = dashboard._retune_result_note(14074000, True, None)
+        self.assertIn("14.074 MHz", note)
+        self.assertIn("confirmed via CAT read-back", note)
+
+    def test_failed_retune_says_verify_manually(self):
+        note = dashboard._retune_result_note(7074000, False, "Communication timed out")
+        self.assertIn("did NOT confirm", note)
+        self.assertIn("Communication timed out", note)
+        self.assertIn("verify/retune manually", note)
+
+    def test_failed_retune_without_detail_still_readable(self):
+        note = dashboard._retune_result_note(7074000, False, None)
+        self.assertIn("did NOT confirm", note)
+        self.assertNotIn("None", note)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

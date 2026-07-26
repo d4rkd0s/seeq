@@ -7,7 +7,7 @@ widget) let the OPERATOR start/stop RX, start/stop the chaser, request a target/
 skip, and hit STOP+UNKEY. Every action is logged to data/actions.log. Set
 COA_DRYRUN=1 to log intended commands without executing them (used for testing).
 """
-import http.server, json, os, re, socketserver, subprocess, sys, time, urllib.parse
+import http.server, json, os, re, shlex, socketserver, subprocess, sys, time, urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adif
@@ -23,6 +23,7 @@ import qrz_xml_api                    # QRZ XML (callsign/bio/photo) lookup -- s
 import mode_registry                  # M0 mode registry -- labels only here, never imports modes.*.pipeline
                                        # itself (that only happens inside bin/mode_switch.py's own process)
 import bandpulse                      # bandpulse.net v1Conditions client -- top-3-bands banner
+import astro                          # sun/moon ephemeris -- day/night terminator + moon widget
 
 _C = station_config.load()
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -37,6 +38,7 @@ TARGET_REQ = os.path.join(DATA, "target-request.json")
 SKIP_REQ = os.path.join(DATA, "skip-request.json")
 SNR_FLOOR_REQ = os.path.join(DATA, "snr-floor-request.json")
 ANTENNAS_JSON = os.path.join(DATA, "antennas.json")
+ENGINE_JSON = os.path.join(DATA, "engine.json")  # written by qso.py (frozen); read-only here except idle_engine_snapshot()
 EVENT_LINES = 20
 MAX_POST_BODY = 65536
 
@@ -67,6 +69,7 @@ RXLOOP_SH = os.path.join(_BIN, "rx-loop.sh")
 LOGSYNC_PY = os.path.join(_BIN, "logsync.py")
 QRZ_FETCH_PY = os.path.join(_BIN, "qrz_fetch.py")
 QRZ_SYNC_LOG = os.path.join(DATA, "qrz-sync.log")
+QRZ_SYNC_EXIT = os.path.join(DATA, "qrz-sync-exit")  # logsync.py's exit code, written by the spawn wrapper below
 QRZ_CACHE = os.path.join(DATA, "qrz-logbook.json")
 MODE_SWITCH_PY = os.path.join(_BIN, "mode_switch.py")
 ACTIVE_MODE_JSON = os.path.join(DATA, "active-mode.json")
@@ -125,17 +128,25 @@ DISH_FLOWER_JSON = json.dumps(_load_dish_flower(), separators=(",", ":")).encode
 FLAGS_DIR = os.path.join(_BIN, "flags")
 _FLAG_CODE_RE = re.compile(r"^[a-z]{2}$")  # matches flag-icons' iso2-lowercase.svg naming
 
+LOGO_PATH = os.path.join(_BIN, "assets", "seeq-logo.png")
+
 PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYCALL__</title>
+<link rel="icon" type="image/png" href="/assets/seeq-logo.png">
 <style>
  body{background:#0d1117;color:#c9d1d9;font-family:system-ui,sans-serif;margin:0;padding:14px}
- h1{font-size:18px;margin:0 0 10px;color:#58a6ff} h1 small{color:#8b949e;font-weight:normal}
+ h1{font-size:18px;margin:0 0 10px;color:#58a6ff;display:flex;align-items:center;gap:9px}
+ h1 small{color:#8b949e;font-weight:normal}
  img{max-width:100%;border-radius:4px;background:#000}
+ #hdrLogo{width:101px;aspect-ratio:2.4/1;max-width:101px;border-radius:0;background:none;flex:none;object-fit:cover;object-position:center}
+ #modeChooserLogo{width:480px;aspect-ratio:2.4/1;max-width:100%;border-radius:0;background:none;
+  display:block;margin:0 auto 14px;object-fit:cover;object-position:center}
  table{border-collapse:collapse;width:100%;font-size:13px;font-family:ui-monospace,monospace}
  td,th{padding:2px 8px;text-align:left;border-bottom:1px solid #21262d;white-space:nowrap}
  th{color:#8b949e;font-weight:600}
  .cq{color:#3fb950;font-weight:600} .me{color:#f85149;font-weight:700;background:#2d1214}
  .next{font-size:15px} .next .callchip-main{font-size:21px;padding:6px 14px}
  .dim{color:#8b949e;font-size:12px} .snr-good{color:#3fb950}.snr-bad{color:#8b949e}
+ .decFlag{width:18px;height:auto;border-radius:2px;vertical-align:middle;display:block}
  #stale{display:none;color:#f85149;font-weight:700}
  #bpBanner{display:none;align-items:center;text-decoration:none;vertical-align:middle}
  #bpBanner .bpSep{color:#8b949e;margin:0 6px 0 0}
@@ -291,9 +302,9 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYC
     everywhere else -- one source of truth for "are we keyed right now". ---- */
  body.tx-live{background:#1a0605}
  body.tx-live::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9998;
-  box-shadow:inset 0 0 10vw 2vw rgba(248,81,73,.65);animation:pageGlow 1s ease-in-out infinite}
- @keyframes pageGlow{0%,100%{box-shadow:inset 0 0 8vw 1.5vw rgba(248,81,73,.45)}
-  50%{box-shadow:inset 0 0 14vw 3vw rgba(248,81,73,.85)}}
+  box-shadow:inset 0 0 5vw 1vw rgba(248,81,73,.65);animation:pageGlow 1s ease-in-out infinite}
+ @keyframes pageGlow{0%,100%{box-shadow:inset 0 0 4vw .75vw rgba(248,81,73,.45)}
+  50%{box-shadow:inset 0 0 7vw 1.5vw rgba(248,81,73,.85)}}
  /* ---- DX Mode armed: separate fixed layer + z-index from tx-live's red
     layer (z-index 9998) so both can coexist at all times -- neither class
     ever toggles the other off, pure z-index layering decides who paints on
@@ -325,8 +336,8 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYC
     shouldFlashNewCountry()/triggerNewCountryFlash() near engTick(). ---- */
  #newCountryGlow{position:fixed;inset:0;pointer-events:none;z-index:10500;opacity:0}
  #newCountryGlow.flash{opacity:1;animation:newCountryPulse 1.4s ease-in-out 2}
- @keyframes newCountryPulse{0%,100%{box-shadow:inset 0 0 8vw 1.5vw rgba(227,179,65,.55)}
-  50%{box-shadow:inset 0 0 16vw 4vw rgba(227,179,65,.95)}}
+ @keyframes newCountryPulse{0%,100%{box-shadow:inset 0 0 6vw 1.125vw rgba(227,179,65,.55)}
+  50%{box-shadow:inset 0 0 12vw 3vw rgba(227,179,65,.95)}}
  #newCountryBanner{position:fixed;top:14px;left:50%;z-index:10501;
   transform:translateX(-50%) translateY(-14px);background:#3d2f00;color:#e3b341;
   border:2px solid #e3b341;border-radius:8px;padding:12px 22px;text-align:center;
@@ -352,14 +363,28 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYC
     win. ---- */
  /* ---- Mode chooser: boot-time "select a mode" overlay (M0, see JS below).
     .modalBox's shared 420px cap is fine for the DX-confirm paragraph but
-    cramped for a row of clickable mode buttons that only grows as JS8/
-    email modes land -- widen just this modal's box, same ID-scoped
-    override technique #helpModal already uses below, and give its buttons
-    more room than the compact Actions-widget .actionbtn default. ---- */
- #modeChooser .modalBox{max-width:90vw;width:560px;padding:28px 32px}
+    cramped for a stack of explanatory mode cards -- widen just this modal's
+    box, same ID-scoped override technique #helpModal already uses below.
+    One card per mode_registry.MODE_INFO entry: label, a short description,
+    a link to the protocol's own reference page, and either a Select button
+    (status=available) or a muted "coming soon" tag (status=planned) -- lets
+    the chooser show SeeQ's mode roadmap (FT4/JS8/Winlink) without
+    pretending they're switchable yet. See docs/MODES-ROADMAP.md. ---- */
+ #modeChooser .modalBox{max-width:92vw;width:640px;padding:28px 32px}
  #modeChooser .modalTitle{font-size:19px;margin-bottom:14px}
- #modeChooserButtons.arow{gap:14px}
- #modeChooserButtons .actionbtn{padding:14px 26px;font-size:15px;min-width:120px;border-radius:8px}
+ #modeChooserButtons{display:flex;flex-direction:column;gap:12px}
+ .modeCard{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px}
+ .modeCard.planned{opacity:.62}
+ .modeCardHead{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+ .modeCardLabel{font-size:16px;font-weight:700;color:#c9d1d9}
+ .modeCardBadge{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#e3b341;
+  border:1px solid #e3b341;border-radius:10px;padding:1px 7px}
+ .modeCardDesc{font-size:12.5px;color:#8b949e;line-height:1.5;margin-bottom:10px}
+ .modeCardFoot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+ .modeCardLink{font-size:11.5px;color:#58a6ff;text-decoration:none}
+ .modeCardLink:hover{text-decoration:underline}
+ .modeCardSoon{font-size:11.5px;color:#8b949e;font-style:italic}
+ #modeChooserButtons .actionbtn{padding:8px 18px;font-size:13.5px;border-radius:6px}
  #helpModal{z-index:10000}
  #helpModal .modalBox{max-width:92vw;width:920px;height:88vh;display:flex;
   flex-direction:column;padding:0}
@@ -432,12 +457,21 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYC
  .wbody{padding:10px;flex:1 1 auto;overflow:auto;min-height:0}
  .widget[data-key=waterfall]{width:600px;height:220px}
  .widget[data-key=map]{width:380px;height:250px}
+ .widget[data-key=moon]{width:220px;height:130px}
+ #moonWidget{font-size:13px;line-height:1.7}
+ #moonWidget .moonPhaseName{font-size:14px;font-weight:700;color:#c9d1d9}
+ #moonMarker circle{fill:#e6edf3;stroke:#0d1117;stroke-width:0.6;vector-effect:non-scaling-stroke}
  .widget[data-key=decodes]{width:540px;height:320px}
  .widget[data-key=ops]{width:300px;height:320px}
  .widget[data-key=events]{width:880px;height:170px}
  .widget[data-key=actions]{width:300px;height:400px}
  .widget[data-key=stationcfg]{width:340px;height:420px}
  .widget[data-key=qrz]{width:340px;height:340px}
+ /* ---- last sync attempt failed (logsync.py exited nonzero) -- a standing
+    visual flag on the widget itself so a broken sync doesn't go unnoticed
+    silently (see _qrz_last_sync_ok()); cleared the moment a sync completes
+    with exit 0. ---- */
+ .widget[data-key=qrz].sync-failed{border-color:#f85149;box-shadow:0 0 0 1px #f85149}
  .widget[data-key=logbook]{width:560px;height:340px}
  #lbTable td.lb-confirmed{color:#3fb950;font-weight:700}
  #lbTable td.lb-uploaded{color:#56d4dd}
@@ -463,7 +497,7 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYC
 </style></head><body>
 <div id=newCountryGlow></div>
 <div id=newCountryBanner><div class=newCountryBannerTitle>✨ NEW COUNTRY ✨</div><div id=newCountryBannerBody class=newCountryBannerBody></div></div>
-<h1>\U0001F4FB SeeQ <small>— __MYCALL__ · __MYGRID__ · Mode: <span id=hMode>—</span> · <span id=hStatus>—</span></small> <a id=bpBanner href="https://bandpulse.net" target=_blank rel=noopener style="display:none" title="live HF band conditions via bandpulse.net — click to see all bands"><span class=bpSep>·</span><span id=bpPills class=bpPills></span></a> <span id=stale>⚠ STALE — rx-loop not updating</span></h1>
+<h1><img id=hdrLogo src="/assets/seeq-logo.png" alt="SeeQ"> <small>— __MYCALL__ · __MYGRID__ · Mode: <span id=hMode>—</span> · <span id=hStatus>—</span></small> <a id=bpBanner href="https://bandpulse.net" target=_blank rel=noopener style="display:none" title="live HF band conditions via bandpulse.net — click to see all bands"><span class=bpSep>·</span><span id=bpPills class=bpPills></span></a> <span id=stale>⚠ STALE — rx-loop not updating</span></h1>
 <div id=cockpit>
  <div class=cpitem><span class=cpk>STATE</span><span class="cpv st-" id=cpState>—</span></div>
  <div class=cpitem><span class=cpk>CALLING</span><span class=cpv id=cpCalling title="where the current target is (DXCC-style prefix lookup, best-effort)">—</span></div>
@@ -568,6 +602,15 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYC
     <select id=pwrSelect></select></div>
    <div class=arow><button id=stationSaveBtn class=actionbtn>Save station config</button></div>
    <div class=dim id=stationMsg></div>
+   <div class=arow style="margin-top:6px">
+    <label class=dim style="display:flex;align-items:center;gap:4px;cursor:pointer"
+     title="every 5s, reads the radio's actual frequency via CAT and retunes it back to the
+      saved band above if it's ever found drifted. Paused automatically while the chaser is
+      running (never contends with qso.py's own CAT use). On by default -- uncheck to disable.">
+     <input type=checkbox id=freqLockToggle> Freq Lock (auto-correct)
+    </label>
+    <span class=dim id=freqLockStatus></span>
+   </div>
    <details style="margin-top:8px">
     <summary class=dim style="cursor:pointer">Add / edit / remove antenna</summary>
     <div class=arow style="margin-top:6px">
@@ -640,14 +683,24 @@ chmod 600 ~/.config/cota/qrz.key</pre>
    <span class=dim style="flex:0 0 auto">heard (cyan) · QSO worked (green) · TX (red) · home (gold)</span>
    <button id=mapAuto class="actionbtn maptbtn active">Auto</button>
    <button id=mapWorld class="actionbtn maptbtn">World</button>
+   <button id=mapDayNight class="actionbtn maptbtn" title="shade the night hemisphere (subsolar-point ephemeris)">Day/Night</button>
    <button class=wcollapse></button></div>
   <div class=wbody style="padding:4px">
    <svg id=map viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet">
     <path d="__WORLD__" fill="#1c2430" stroke="#30363d" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
     <g id=stateBorders></g><g id=countryBorders></g>
+    <path id=terminatorPath fill="#000" fill-opacity="0.4" stroke="none" style="display:none;pointer-events:none"></path>
     <g id=rx></g><g id=qso></g><g id=tx></g><g id=home></g>
+    <g id=moonMarker style="display:none"></g>
    </svg>
   </div>
+ </div>
+
+ <div class=widget data-key=moon>
+  <div class=wtitle><span class=wname>Moon</span>
+   <span class=dim>ephemeris, ~1-2° accuracy — situational awareness, not dish-pointing</span>
+   <button class=wcollapse></button></div>
+  <div class=wbody><div id=moonWidget class=dim>loading…</div></div>
  </div>
 
  <div class=widget data-key=waterfall>
@@ -665,9 +718,10 @@ chmod 600 ~/.config/cota/qrz.key</pre>
 </div>
 <div id=modeChooser class=modalOverlay style="display:none">
  <div class=modalBox>
-  <div class=modalTitle>Welcome — select a mode to begin</div>
+  <img id=modeChooserLogo src="/assets/seeq-logo.png" alt="SeeQ">
+  <div class=modalTitle style="text-align:center">Welcome — select a mode to begin</div>
   <div class=modalBody>
-   <div id=modeChooserButtons class=arow></div>
+   <div id=modeChooserButtons></div>
    <div id=modeChooserStatus style="display:none;margin-top:10px;color:#8b949e"></div>
   </div>
  </div>
@@ -922,6 +976,13 @@ let mapPoints={rx:[], tx:null, qso:[]};
    decode scan renderRX() already does, keyed by call. ---- */
 let recentGridByCall={};
 let snrFloorInitialized=false;
+// DX Mode nudges the SNR floor deeper (more negative) on arm -- DX contacts
+// are farther/weaker by definition, so the floor that made sense a moment
+// ago is now overly conservative. preDxSnrFloor remembers what the slider
+// held before arming so disarming can put it back exactly, rather than
+// guessing or falling back to the station default.
+const DX_MODE_SNR_FLOOR=-18;
+let preDxSnrFloor=null;
 function grid2ll(g){                       // Maidenhead 4/6-char -> [lat,lon] (cell center)
  g=(g||'').trim().toUpperCase();
  if(!/^[A-R]{2}[0-9]{2}([A-X]{2})?$/.test(g)) return null;
@@ -932,6 +993,17 @@ function grid2ll(g){                       // Maidenhead 4/6-char -> [lat,lon] (
  return [lat,lon];
 }
 function ll2xy(ll){ return [(ll[1]+180)/360*MW, (90-ll[0])/180*MH]; }
+/* ---- day/night terminator: astro.terminator_polygon() (bin/astro.py) already
+   returns a closed [lat,lon] night-hemisphere polygon (subsolar-point boundary
+   curve + correct pole-closing edge) -- this just projects it through the
+   existing ll2xy() and joins it into one SVG path 'd' string. ---- */
+function terminatorPathD(poly){
+ if(!poly||!poly.length) return '';
+ return poly.map((p,i)=>{
+  const xy=ll2xy(p);
+  return (i===0?'M':'L')+xy[0].toFixed(2)+' '+xy[1].toFixed(2);
+ }).join(' ')+' Z';
+}
 function isGrid(t){ return /^[A-R]{2}[0-9]{2}$/.test(t) && t!=='RR73'; }
 /* ---- callsign prefix -> country, display only (best-effort DXCC-style
    lookup, not exhaustive). Longest matching prefix wins regardless of list
@@ -1198,20 +1270,74 @@ function setMapMode(m){
 function snrRiskLevel(floorDb){
  const clamped=Math.max(-24,Math.min(0,floorDb));
  const pct=Math.round((-clamped/24)*100);
- let level,label;
- if(pct>=75){level='high';label='High risk of no response';}
- else if(pct>=45){level='moderate';label='Moderate risk of no response';}
- else if(pct>=20){level='low';label='Low risk of no response';}
- else{level='minimal';label='Minimal risk — strong signals only';}
- return {pct,level,label};
+ let level;
+ if(pct>=75) level='high';
+ else if(pct>=45) level='moderate';
+ else if(pct>=20) level='low';
+ else level='minimal';
+ return {pct,level};
 }
 const SNR_RISK_COLORS={high:'#f85149',moderate:'#f0883e',low:'#56d4dd',minimal:'#3fb950'};
+/* ---- SNR floor labels: one distinct description per dB across the
+   slider's full -30..+10 range (41 values, matching min/max/step on
+   #snrFloorSlider) -- a qualitative narrative of signal strength/decode
+   difficulty, not 41 scientifically distinct categories (a 1 dB step
+   isn't perceptible on real HF noise) -- so dragging the slider always
+   shows fresh, specific wording instead of a handful of repeated risk
+   buckets. Ordered index 0 (+10 dB) .. 40 (-30 dB). ---- */
+const SNR_FLOOR_LABELS=[
+ "Booming — armchair copy",                  // +10
+ "Very strong signal",                       // +9
+ "Strong, clean copy",                       // +8
+ "Comfortably strong",                       // +7
+ "Solid copy",                                // +6
+ "Firmly readable",                          // +5
+ "Good, easy copy",                          // +4
+ "Reliable copy",                            // +3
+ "Steady copy",                               // +2
+ "Comfortable copy",                         // +1
+ "Clean baseline copy",                      //  0
+ "Slightly softened",                        // -1
+ "A touch soft",                              // -2
+ "Mildly reduced",                           // -3
+ "Workable copy",                            // -4
+ "Modest signal",                            // -5
+ "Thinning out",                              // -6
+ "Thin but usable",                          // -7
+ "Fair copy",                                 // -8
+ "Getting borderline",                       // -9
+ "Weak signal",                               // -10
+ "Weak, still holding",                      // -11
+ "Noticeably weak",                          // -12
+ "Leaning marginal",                         // -13
+ "Moderately weak",                          // -14
+ "Nearing marginal",                         // -15
+ "Marginal — the classic QRP floor",         // -16
+ "Marginal, trending deeper",                // -17
+ "Marginal-deep — typical DX floor",         // -18
+ "Deepening marginal",                       // -19
+ "Deep weak-signal work",                    // -20
+ "Very deep copy",                            // -21
+ "Fringe signal",                             // -22
+ "Deep fringe",                               // -23
+ "Extreme fringe — FT8's practical limit",   // -24
+ "Past the usual limit",                     // -25
+ "Ultra-fringe",                              // -26
+ "Scraping the noise floor",                 // -27
+ "Nearly swallowed by noise",                // -28
+ "Buried in the noise",                      // -29
+ "At the ragged edge of decodability",       // -30
+];
+function snrFloorLabel(floorDb){
+ const clamped=Math.max(-30,Math.min(10,Math.round(floorDb)));
+ return SNR_FLOOR_LABELS[10-clamped];
+}
 function updateSnrRiskUI(floorDb){
  const r=snrRiskLevel(floorDb);
  document.getElementById('snrFloorVal').textContent=floorDb+' dB';
  const fill=document.getElementById('snrRiskFill');
  fill.style.width=r.pct+'%'; fill.style.background=SNR_RISK_COLORS[r.level];
- document.getElementById('snrRiskLabel').textContent=r.label;
+ document.getElementById('snrRiskLabel').textContent=snrFloorLabel(floorDb);
 }
 
 /* ---- country/state border lines: fetched once (not on every tick --
@@ -1356,8 +1482,10 @@ async function loadCfg(){
 /* ---- Station config widget: antenna CRUD + band/wattage selection, LOCKED
    to the server's BANDS table and each antenna's own max_watts — this page
    never lets the operator type a raw Hz or an unbounded watt value. Saving
-   only writes station.conf; it never touches the CAT port (no retune, no
-   TX) — see /action/station/set's docstring in dashboard.py. ---- */
+   writes station.conf AND retunes the radio via CAT to match (never PTT,
+   never TX) — see /action/station/set's docstring in dashboard.py. Freq
+   Lock (below) is a separate, explicitly-armed 30s auto-correct loop that
+   guards against later drift — see wireFreqLock(). ---- */
 let ANTENNAS=[], BANDS_CACHE=[];
 function bandLabel(b){
  return `${b.name} — ${(b.freq_hz/1e6).toFixed(3)} MHz (FT8)`+(b.cap_w?` [legal cap ${b.cap_w} W]`:'');
@@ -1413,6 +1541,61 @@ async function loadAntennas(preserveSel){
   onAntennaChange();
  }catch(e){}
 }
+
+/* ---- Freq Lock: 5s auto-correct that pulls the radio back to the saved
+   band's dial frequency if CAT read-back ever finds it drifted. ON by
+   default (same reasoning as QRZ auto-sync -- Logan's own feedback after
+   trying the off-by-default version: a config-panel checkbox is too easy
+   to miss, and a drifted radio going unnoticed is worse than the checkbox
+   being on) -- an explicit opt-out still sticks across reloads, see
+   freqLockShouldArmOnLoad(). Every tick just POSTs to
+   /action/freq_lock/check, which does the actual read/compare/correct and
+   -- critically -- refuses to touch CAT at all while the chaser owns the
+   port (see that handler's docstring in dashboard.py). Formats its own
+   status line; no pure logic worth extracting to test here beyond the
+   arm-on-load decision (just string formatting off an already-tested
+   server-side decision otherwise). ---- */
+const FREQ_LOCK_PERIOD_MS=5000;
+let freqLockTimer=null;
+function freqLockSetStatus(t){ const el=document.getElementById('freqLockStatus'); if(el) el.textContent=t; }
+async function freqLockTick(){
+ const r=await postAction('/action/freq_lock/check',{});
+ const stamp=new Date().toLocaleTimeString();
+ if(!r.ok){ freqLockSetStatus('check failed: '+((r.body&&r.body.error)||r.status)+' — '+stamp); return; }
+ const b=r.body;
+ if(b.skipped){ freqLockSetStatus(b.skipped+' — '+stamp); return; }
+ if(b.locked){ freqLockSetStatus(`on freq (${(b.hz/1e6).toFixed(3)} MHz) — `+stamp); return; }
+ freqLockSetStatus((b.retune_ok
+   ? `drift corrected: ${(b.was_hz/1e6).toFixed(3)} → ${(b.corrected_to_hz/1e6).toFixed(3)} MHz`
+   : `drift found (${(b.was_hz/1e6).toFixed(3)} MHz) but retune FAILED`)+' — '+stamp);
+}
+function freqLockArm(){
+ if(!freqLockTimer) freqLockTimer=setInterval(freqLockTick,FREQ_LOCK_PERIOD_MS);
+ freqLockTick();
+}
+function freqLockDisarm(){
+ if(freqLockTimer){ clearInterval(freqLockTimer); freqLockTimer=null; }
+ freqLockSetStatus('');
+}
+// Defaults ON (same reasoning/pattern as qrzAutoShouldArmOnLoad -- a
+// feature that's on but easy to miss in a config panel is worse than one
+// that's just on) -- an explicit prior opt-out ('0', written by the change
+// handler below) is respected and stays off; '1' or never-set both arm.
+function freqLockShouldArmOnLoad(storedPref){
+ return storedPref!=='0';
+}
+function wireFreqLock(){
+ const ck=document.getElementById('freqLockToggle');
+ ck.addEventListener('change',(e)=>{
+  if(e.target.checked){ freqLockArm(); try{localStorage.setItem('seeq-freq-lock','1');}catch(err){} }
+  else{ freqLockDisarm(); try{localStorage.setItem('seeq-freq-lock','0');}catch(err){} }
+ });
+ let pref=null;
+ try{ pref=localStorage.getItem('seeq-freq-lock'); }catch(e){}
+ ck.checked=freqLockShouldArmOnLoad(pref);
+ if(ck.checked) freqLockArm();
+}
+
 function wireStationCfg(){
  document.getElementById('antSelect').addEventListener('change',onAntennaChange);
  document.getElementById('bandSelect').addEventListener('change',refreshPwrOptions);
@@ -1480,6 +1663,20 @@ function qrzJobDue(elapsedMs, periodMs, offsetMs, lastFireMs){
  if(lastFireMs===null) return true;
  return (elapsedMs-lastFireMs)>=periodMs;
 }
+// Auto sync & upload defaults ON the first time a key is confirmed on file
+// (a key sitting unsynced with nothing flagging it is exactly the bug this
+// fixes) -- storedPref is localStorage's 'seeq-qrz-auto' value (null if
+// never set by a user). Only an explicit prior opt-out ('0', written by
+// wireQrz()'s change handler) keeps it off; '1' or never-set both arm.
+function qrzAutoShouldArmOnLoad(storedPref){
+ return storedPref!=='0';
+}
+// Pure predicate behind the QRZ widget's red-border failure flag -- kept as
+// its own function (rather than an inline ===false at the call site) so it
+// has the same test coverage as every other piece of display logic here.
+function qrzWidgetShowsSyncFailed(lastSyncOk){
+ return lastSyncOk===false;
+}
 let qrzAutoArmedAt=null, qrzAutoHeartbeat=null, qrzAutoLastSync=null, qrzAutoLastRefresh=null, qrzAutoInitPending=true;
 function qrzAutoSetStatus(t){ const el=document.getElementById('qrzAutoStatus'); if(el) el.textContent=t; }
 async function qrzAutoTick(){
@@ -1503,13 +1700,11 @@ function qrzAutoArm(){
  qrzAutoArmedAt=Date.now(); qrzAutoLastSync=null; qrzAutoLastRefresh=null;
  if(!qrzAutoHeartbeat) qrzAutoHeartbeat=setInterval(qrzAutoTick,QRZ_AUTO_HEARTBEAT_MS);
  qrzAutoTick();
- try{localStorage.setItem('seeq-qrz-auto','1');}catch(e){}
 }
 function qrzAutoDisarm(){
  qrzAutoArmedAt=null;
  if(qrzAutoHeartbeat){ clearInterval(qrzAutoHeartbeat); qrzAutoHeartbeat=null; }
  qrzAutoSetStatus('');
- try{localStorage.removeItem('seeq-qrz-auto');}catch(e){}
 }
 let qrzSyncPolling=null;
 async function loadQrzStatus(){
@@ -1524,10 +1719,17 @@ async function loadQrzStatus(){
   log.textContent=(s.log_tail&&s.log_tail.length)?s.log_tail.join('\\n'):'no syncs yet';
   const btn=document.getElementById('qrzSyncBtn');
   btn.disabled=s.syncing||!s.configured;
+  // last completed sync's exit code (see _qrz_last_sync_ok()) -- red border
+  // stays up until a sync actually completes clean, so a silently-broken
+  // key/network doesn't just fade back to normal-looking on its own.
+  document.querySelector('.widget[data-key=qrz]').classList.toggle('sync-failed', qrzWidgetShowsSyncFailed(s.last_sync_ok));
   // Auto sync & upload toggle: disabled without a key on file; force-disarm
   // if a key that WAS configured disappears mid-session. On the first status
-  // load that confirms a key is on file, restore an armed state left over
-  // from a previous page load (see qrzAutoArm()'s localStorage write).
+  // load that confirms a key is on file, default this ON (auto sync should
+  // be the default once a key is on file -- previously defaulted off, which
+  // meant a real key sitting unsynced for a while with nothing flagging it).
+  // An explicit prior opt-out ('0', written only by wireQrz()'s change
+  // handler below) is respected and stays off; '1' or never-set both arm.
   const autoCk=document.getElementById('qrzAutoToggle');
   autoCk.disabled=!s.configured;
   document.getElementById('qrzAutoLabel').title=s.configured
@@ -1536,9 +1738,9 @@ async function loadQrzStatus(){
   if(!s.configured && qrzAutoArmedAt!==null){ autoCk.checked=false; qrzAutoDisarm(); }
   if(qrzAutoInitPending && s.configured){
    qrzAutoInitPending=false;
-   try{
-    if(localStorage.getItem('seeq-qrz-auto')==='1'){ autoCk.checked=true; qrzAutoArm(); }
-   }catch(e){}
+   let pref=null;
+   try{ pref=localStorage.getItem('seeq-qrz-auto'); }catch(e){}
+   if(qrzAutoShouldArmOnLoad(pref)){ autoCk.checked=true; qrzAutoArm(); }
   }
   if(s.syncing && !qrzSyncPolling){
    qrzSyncPolling=setInterval(loadQrzStatus,2000);
@@ -1549,7 +1751,8 @@ async function loadQrzStatus(){
 }
 function wireQrz(){
  document.getElementById('qrzAutoToggle').addEventListener('change',(e)=>{
-  if(e.target.checked) qrzAutoArm(); else qrzAutoDisarm();
+  if(e.target.checked){ qrzAutoArm(); try{localStorage.setItem('seeq-qrz-auto','1');}catch(err){} }
+  else{ qrzAutoDisarm(); try{localStorage.setItem('seeq-qrz-auto','0');}catch(err){} }
  });
  document.getElementById('qrzSyncBtn').addEventListener('click',async()=>{
   const msg=document.getElementById('qrzMsg');
@@ -1670,6 +1873,18 @@ function renderQSOs(s){
 function txLineActive(e, chaserRunning){
  return !!(chaserRunning && e && (e.state==='calling'||e.state==='qso') && e.target);
 }
+/* ---- same staleness guard as txLineActive, for the cockpit's "ON AIR"
+   pulse/countdown and the STOP button's own live-glow: engine.json's tx
+   field is a snapshot that's never reset when the chaser exits (crash,
+   kill -9, or any exit that skips qso.py's own cleanup), so a finished/
+   killed run can leave tx:true on disk forever -- and with it, a
+   permanently pulsing "ON AIR -- unkey now" that no amount of clicking
+   STOP will clear, since STOP's real job (force-unkey the physical rig)
+   was already done; the stale *display* just never got told. Must agree
+   with chaserRunning, exactly like txLineActive above. ---- */
+function txIsLive(e, chaserRunning){
+ return !!(chaserRunning && e && e.tx);
+}
 /* ---- grid to plot the TX line to: prefer engine.json's own grid (from the
    CQ we answered), fall back to any grid recently heard for the same call
    elsewhere (recentGridByCall, from renderRX's decode scan) rather than
@@ -1757,7 +1972,7 @@ function updateNextTx(e, tx, st){
   if(r.cls) el.classList.add(r.cls);
  }else el.textContent='—';
 }
-function nextTxFastTick(){ if(lastEngine) updateNextTx(lastEngine, !!lastEngine.tx, lastEngine.state||''); }
+function nextTxFastTick(){ if(lastEngine) updateNextTx(lastEngine, txIsLive(lastEngine,chaserRunning), lastEngine.state||''); }
 
 /* ---- TX transparency panel: exact message + spectrogram actually keyed.
    tx_msg/tx_offset are set BEFORE key-up (so the countdown window already
@@ -1821,7 +2036,7 @@ async function engTick(){
   cp.textContent='IDLE';
   cp.className='cpv st-idle';
  }
- const tx=!!(e&&e.tx);
+ const tx=txIsLive(e,chaserRunning);
  cp.classList.toggle('tx-live',tx);
  document.getElementById('btnUnkey').classList.toggle('live',tx);
  // new country flash: gated on body.dx-armed, same source of truth the
@@ -1891,6 +2106,29 @@ function triggerNewCountryFlash(call, country){
  newCountryBannerTimer=setTimeout(()=>document.getElementById('newCountryBanner').classList.remove('show'), 5000);
  fireAlert('New country', `${call} — ${country}`);
 }
+/* ---- Decodes table flag column: best-effort extraction of "the other
+   station's callsign" from a raw decode line, fed through the same
+   callCountry()/resolveCountryIso2()/borderCountries pipeline the country-
+   info card and map already use -- no new detection system, just reused
+   against a different display spot. Handles CQ lines ("CQ CALL GRID", "CQ
+   DX CALL GRID", "CQ POTA CALL GRID", ...) and standard exchange lines
+   ("CALL1 CALL2 <report|grid|RRR|RR73|73>") where one of CALL1/CALL2 is
+   mycall. Not a full FT8 grammar parser -- same "good enough for display"
+   trust tier as callCountry()'s own prefix table; an unparseable line just
+   shows no flag (fail-open), never a wrong one for a garbled decode. ---- */
+function decodeOtherCallsign(msg, mycall){
+ const tk=(msg||'').trim().split(/\s+/).filter(Boolean);
+ if(!tk.length) return null;
+ if(tk[0]==='CQ'){
+  if(tk.length<2) return null;
+  const last=tk[tk.length-1];
+  return (tk.length>=3 && isGrid(last)) ? tk[tk.length-2] : last;
+ }
+ if(tk.length<2) return null;
+ if(tk[0]===mycall) return tk[1];
+ if(tk[1]===mycall) return tk[0];
+ return tk[0];
+}
 async function tick(){
  try{
   const r=await fetch('/status.json?t='+Date.now()); const s=await r.json();
@@ -1904,10 +2142,16 @@ async function tick(){
   }else{
    lastSilenceFlag=false;
   }
-  let h='<tr><th>slot</th><th>SNR</th><th>DT</th><th>Hz</th><th>message</th></tr>';
+  let h='<tr><th></th><th>slot</th><th>SNR</th><th>DT</th><th>Hz</th><th>message</th></tr>';
   for(const d of [...s.recent].reverse()){
    const cls=d.msg.startsWith('CQ')?'cq':(d.msg.includes('__MYCALL__')?'me':'');
-   h+=`<tr class="${cls}"><td>${d.slot}</td><td class="${d.snr>=-12?'snr-good':'snr-bad'}">${d.snr}</td><td>${d.dt}</td><td>${d.freq}</td><td>${d.msg}</td></tr>`;}
+   const otherCall=decodeOtherCallsign(d.msg, CFG&&CFG.mycall);
+   const country=otherCall?callCountry(otherCall):'';
+   const iso2=country?resolveCountryIso2(country,borderCountries):null;
+   const flag=iso2
+    ?`<img class=decFlag src="/flags/${iso2.toLowerCase()}.svg" alt="${esc(iso2)}" title="${esc(country)}" onerror="this.style.display='none'">`
+    :'';
+   h+=`<tr class="${cls}"><td>${flag}</td><td>${d.slot}</td><td class="${d.snr>=-12?'snr-good':'snr-bad'}">${d.snr}</td><td>${d.dt}</td><td>${d.freq}</td><td>${d.msg}</td></tr>`;}
   document.getElementById('dec').innerHTML=h;
   if(s.next_call){
    document.getElementById('next').innerHTML=
@@ -1981,10 +2225,25 @@ async function startModeSwitch(mode){
  const r=await postAction('/action/mode/switch',{mode});
  if(!r.ok) statusEl.textContent=`request failed: ${(r.body&&r.body.error)||r.error||r.status}`;
 }
+function modeCardHtml(key, m){
+ const available=m.status==='available';
+ const badge=available?'':'<span class=modeCardBadge>planned</span>';
+ const action=available
+  ?`<button class=actionbtn data-mode="${escapeHtml(key)}">Select ${escapeHtml(m.label)}</button>`
+  :'<span class=modeCardSoon>coming soon</span>';
+ return `<div class="modeCard${available?'':' planned'}">`+
+  `<div class=modeCardHead><span class=modeCardLabel>${escapeHtml(m.label)}</span>${badge}</div>`+
+  `<div class=modeCardDesc>${escapeHtml(m.description||'')}</div>`+
+  `<div class=modeCardFoot>`+
+   `<a class=modeCardLink href="${escapeHtml(m.protocol_url||'#')}" target=_blank rel=noopener>protocol reference ↗</a>`+
+   action+
+  `</div></div>`;
+}
 function renderModeChooserButtons(registry){
  const box=document.getElementById('modeChooserButtons');
- box.innerHTML=Object.keys(registry).map(k=>
-  `<button class=actionbtn data-mode="${k}">${registry[k].label}</button>`).join('');
+ const keys=Object.keys(registry).sort((a,b)=>
+  (registry[a].status==='available'?0:1)-(registry[b].status==='available'?0:1));
+ box.innerHTML=keys.map(k=>modeCardHtml(k,registry[k])).join('');
  box.querySelectorAll('button[data-mode]').forEach(btn=>{
   btn.addEventListener('click',()=>startModeSwitch(btn.dataset.mode));
  });
@@ -2032,6 +2291,36 @@ async function loadBandPulse(){
   banner.style.display='inline-flex';
  }catch(e){ banner.style.display='none'; }
 }
+/* ---- Moon widget + map marker: driven by /astro/state's "moon" field
+   (bin/astro.py's two-body ephemeris -- see its module docstring for the
+   accuracy tier). Pure rendering functions, same style as bpPillsHtml/
+   modeCardHtml above, so they're independently Node-testable. ---- */
+function moonWidgetHtml(m){
+ if(!m) return 'no data';
+ const pct=Math.round(m.illuminated_fraction*100);
+ return `<div class=moonPhaseName>${escapeHtml(m.phase_name)}</div>`+
+  `<div>${pct}% illuminated · ${m.age_days.toFixed(1)}d since new moon</div>`+
+  `<div class=dim>sub-lunar point: ${m.lat.toFixed(1)}°, ${m.lon.toFixed(1)}°</div>`;
+}
+function renderMoonMarker(m){
+ const g=document.getElementById('moonMarker');
+ if(!m){ g.style.display='none'; return; }
+ const xy=ll2xy([m.lat,m.lon]);
+ const title=`Moon — sub-lunar point ${m.lat.toFixed(1)}°, ${m.lon.toFixed(1)}° `+
+  `(${escapeHtml(m.phase_name)}, ${Math.round(m.illuminated_fraction*100)}% illuminated)`;
+ g.innerHTML=`<circle cx="${xy[0].toFixed(2)}" cy="${xy[1].toFixed(2)}" r="4"><title>${title}</title></circle>`;
+ g.style.display='';
+}
+let ASTRO_STATE=null;
+async function loadAstroState(){
+ try{
+  const r=await fetch('/astro/state?t='+Date.now());
+  ASTRO_STATE=await r.json();
+  document.getElementById('terminatorPath').setAttribute('d', terminatorPathD(ASTRO_STATE.terminator));
+  renderMoonMarker(ASTRO_STATE.moon);
+  document.getElementById('moonWidget').innerHTML=moonWidgetHtml(ASTRO_STATE.moon);
+ }catch(e){}
+}
 function headerStatusLabel(tx,chaserRunning,rxloopRunning){
  if(tx) return 'Transmitting';
  if(chaserRunning) return 'Chasing';
@@ -2041,7 +2330,15 @@ function headerStatusLabel(tx,chaserRunning,rxloopRunning){
 async function refreshActionsState(){
  try{
   const r=await fetch('/actions/state?t='+Date.now()); const j=await r.json();
-  const tx=!!j.ptt;
+  // j.ptt mirrors engine.json's tx field, a snapshot qso.py never resets on
+  // exit (crash, kill -9, anything that skips its own cleanup) -- a killed/
+  // finished run can leave ptt:true on disk forever, which without this
+  // guard drives a permanently pulsing page-wide "ON AIR" siren that no
+  // amount of clicking STOP clears (STOP's real job, force-unkeying the
+  // physical rig, already happened; the stale *display* was never told).
+  // Same staleness guard as txIsLive()/txLineActive() above -- must agree
+  // with j.chaser (a live process check), not just the snapshot alone.
+  const tx=!!(j.ptt && j.chaser);
   document.getElementById('hStatus').textContent=headerStatusLabel(tx,!!j.chaser,!!j.rxloop);
   // this pill was showing rx-loop's process-alive state ("running") even
   // while actively keyed, which reads as "we're receiving, not transmitting"
@@ -2096,19 +2393,37 @@ function wireActions(){
  // input (like chaseN/chaseMode) -- the page's blue dx-armed glow is driven
  // separately, off the RUNNING chaser's real dx_mode state (see
  // refreshActionsState()), not off this checkbox.
- document.getElementById('dxModeToggle').addEventListener('change',(e)=>{
+ document.getElementById('dxModeToggle').addEventListener('change',async(e)=>{
   if(e.target.checked){
    e.target.checked=false;
    document.getElementById('dxModal').style.display='flex';
+  }else if(preDxSnrFloor!=null){
+   // Unarmed after having been armed -- put the SNR floor back exactly
+   // where it was before DX Mode nudged it deeper.
+   const v=preDxSnrFloor; preDxSnrFloor=null;
+   document.getElementById('snrFloorSlider').value=v;
+   updateSnrRiskUI(v);
+   const r=await postAction('/action/snr_floor/set',{snr_floor:v});
+   setActionsMsg(r.ok?`DX Mode off — SNR floor restored to ${v} dB`:
+    'SNR floor restore failed: '+(r.body.error||r.error||r.status));
   }
  });
  document.getElementById('dxModalCancel').addEventListener('click',()=>{
   document.getElementById('dxModal').style.display='none';
   document.getElementById('dxModeToggle').checked=false;
  });
- document.getElementById('dxModalConfirm').addEventListener('click',()=>{
+ document.getElementById('dxModalConfirm').addEventListener('click',async()=>{
   document.getElementById('dxModal').style.display='none';
   document.getElementById('dxModeToggle').checked=true;
+  // Arm: remember the pre-DX floor, then deepen it -- DX contacts are
+  // farther/weaker, so the same reciprocity tradeoff now favors letting
+  // weaker CQs through.
+  preDxSnrFloor=parseInt(document.getElementById('snrFloorSlider').value,10);
+  document.getElementById('snrFloorSlider').value=DX_MODE_SNR_FLOOR;
+  updateSnrRiskUI(DX_MODE_SNR_FLOOR);
+  const r=await postAction('/action/snr_floor/set',{snr_floor:DX_MODE_SNR_FLOOR});
+  setActionsMsg(r.ok?`DX Mode armed — SNR floor deepened to ${DX_MODE_SNR_FLOOR} dB for weaker/farther DX`:
+   'SNR floor update failed: '+(r.body.error||r.error||r.status));
  });
  document.getElementById('btnChaseConfirm').addEventListener('click',async()=>{
   const n=parseFloat(document.getElementById('chaseN').value);
@@ -2372,6 +2687,13 @@ function initWidgetChrome(){
 }
 document.getElementById('mapAuto').addEventListener('click',()=>setMapMode('auto'));
 document.getElementById('mapWorld').addEventListener('click',()=>setMapMode('world'));
+document.getElementById('mapDayNight').addEventListener('click',()=>{
+ const btn=document.getElementById('mapDayNight');
+ const path=document.getElementById('terminatorPath');
+ const show=path.style.display==='none';
+ path.style.display=show?'':'none';
+ btn.classList.toggle('active',show);
+});
 
 /* ---- manual pan/drag + wheel/pinch-zoom: any manual interaction drops
    mapMode out of 'auto'/'world' (so updateMapZoom()'s auto-fit stops
@@ -2510,6 +2832,7 @@ wireBell();
 loadLayout();
 wireActions();
 wireStationCfg();
+wireFreqLock();
 wireQrz();
 wireHelp();
 document.getElementById('evRaw').addEventListener('change',renderEvents);
@@ -2525,6 +2848,7 @@ loadLogbook(); setInterval(loadLogbook,15000);
 loadModeRegistry();
 pollModeState(); setInterval(pollModeState,1000);
 loadBandPulse(); setInterval(loadBandPulse,300000);
+loadAstroState(); setInterval(loadAstroState,60000);
 </script></body></html>"""
 PAGE = (PAGE.replace("__MYCALL__", MYCALL).replace("__MYGRID__", MYGRID)
             .replace("__EVENT_LINES__", str(EVENT_LINES))
@@ -2556,6 +2880,20 @@ def qrz_sync_tail(n=30):
     except OSError:
         return []
 
+def _qrz_last_sync_ok(path=QRZ_SYNC_EXIT):
+    """(ok, at_epoch) from the exit-code file the /action/qrz/sync spawn
+    wrapper writes once logsync.py finishes (see _action_qrz_sync) --
+    (None, None) before any sync has ever completed (fresh install) or if
+    the file is missing/malformed, fail-open like every other embedded-
+    state loader in this app. `path` is injectable for tests."""
+    try:
+        with open(path) as f:
+            code = int(f.read().strip())
+        at = os.path.getmtime(path)
+    except (OSError, ValueError):
+        return None, None
+    return (code == 0), at
+
 def _read_qrz_cache():
     try:
         with open(QRZ_CACHE) as f:
@@ -2576,6 +2914,7 @@ def _qrz_status():
     cache = _read_qrz_cache()
     confirmed = sum(1 for r in cache["records"]
                     if (r.get("app_qrzlog_status") or "").upper() == "C")
+    last_sync_ok, last_sync_at = _qrz_last_sync_ok()
     return {
         "configured": logsync.read_key() is not None,
         "offset": offset,
@@ -2587,6 +2926,8 @@ def _qrz_status():
         "qrz_confirmed": confirmed,
         "fetched_at": cache["fetched_at"],
         "log_tail": qrz_sync_tail(30),
+        "last_sync_ok": last_sync_ok,
+        "last_sync_at": last_sync_at,
     }
 
 
@@ -2651,6 +2992,20 @@ def atomic_write_json(path, obj):
         json.dump(obj, f)
     os.replace(tmp, path)
 
+def idle_engine_snapshot():
+    """The safe 'nothing is happening' shape of data/engine.json -- same
+    field set qso.py's own _engine dict starts from, but state='idle'
+    (distinct from qso.py's 'init', meaning "explicitly stopped after
+    running" rather than "never started"). Pure/no I/O, so it's testable
+    without touching the filesystem; _action_unkey() below is the only
+    caller, writing it via atomic_write_json() once qso.py is confirmed
+    not running -- engine.json is otherwise qso.py's (frozen code) alone
+    to write, never touched here while the chaser might still be alive."""
+    return {"utc": "", "state": "idle", "target": None, "grid": None, "tx": False,
+            "dx_mode": False, "msg": None, "offset": None, "next_tx_epoch": None,
+            "unkey_deadline_epoch": None, "tx_msg": None, "tx_offset": None,
+            "qso_step": None, "msg_tx_count": None, "snr_floor": None, "new_country": False}
+
 def log_action(line):
     """Append one audit-trail line to data/actions.log. Never raises."""
     try:
@@ -2686,6 +3041,44 @@ def _pkill(pattern):
         return r.returncode == 0
     except Exception:
         return False
+
+
+def _rigctl_set_freq(hz):
+    """CAT frequency-set (rigctl F <hz>) -- VFO tuning only, never PTT.
+    Callers must confirm qso.py isn't running first (one CAT-port owner at a
+    time — ground rule #3). Returns (ok, err_detail_or_None)."""
+    try:
+        r = subprocess.run(["rigctl", "-m", RIG_MODEL, "-r", CAT_PORT, "-s", CAT_BAUD, "F", str(hz)],
+                            capture_output=True, text=True, timeout=10)
+        if r.returncode != 0:
+            return False, (r.stderr or r.stdout).strip()
+        return True, None
+    except Exception as e:
+        return False, repr(e)
+
+
+def _rigctl_read_freq():
+    """CAT frequency read-back (rigctl f). Returns (hz_or_None, err_detail_or_None)."""
+    try:
+        r = subprocess.run(["rigctl", "-m", RIG_MODEL, "-r", CAT_PORT, "-s", CAT_BAUD, "f"],
+                            capture_output=True, text=True, timeout=10)
+        if r.returncode != 0:
+            return None, (r.stderr or r.stdout).strip()
+        return int(r.stdout.strip()), None
+    except Exception as e:
+        return None, repr(e)
+
+
+def _retune_result_note(freq_hz, retuned, err_detail):
+    """Pure formatting of /action/station/set's response note, given whether
+    the post-save CAT retune was confirmed via read-back. Extracted so it's
+    testable without mocking subprocess (matches this file's established
+    no-subprocess-testing boundary for _action_* handlers)."""
+    mhz = freq_hz / 1e6
+    if retuned:
+        return f"Saved and retuned the radio to {mhz:.3f} MHz — confirmed via CAT read-back."
+    detail = f" ({err_detail})" if err_detail else ""
+    return f"Saved, but the radio did NOT confirm retuning to {mhz:.3f} MHz{detail} — verify/retune manually."
 
 # ---- antenna profiles: operator-editable, band/wattage selection is locked
 # to this data + the BANDS table above (no free-form Hz entry, no wattage
@@ -2836,8 +3229,7 @@ class H(http.server.SimpleHTTPRequestHandler):
             self.send_body(json.dumps(dict(CONFIG, mode=_active_mode_label() or "—")).encode(),
                             "application/json")
         elif path == "/mode/registry":
-            body = json.dumps({k: {"label": v["label"]} for k, v in mode_registry.MODES.items()}).encode()
-            self.send_body(body, "application/json")
+            self.send_body(json.dumps(mode_registry.MODE_INFO).encode(), "application/json")
         elif path == "/mode/state":
             state = {"active_mode": _active_mode(), "switch": None}
             try:
@@ -2854,6 +3246,8 @@ class H(http.server.SimpleHTTPRequestHandler):
                            "cell": result.get("cell")})
             else:
                 self._err(502, result)
+        elif path == "/astro/state":
+            self.send_body(json.dumps(astro.snapshot()).encode(), "application/json")
         elif path == "/antennas":
             self.send_body(json.dumps(_load_antennas()).encode(), "application/json")
         elif path == "/bands":
@@ -2877,6 +3271,12 @@ class H(http.server.SimpleHTTPRequestHandler):
             self.send_body(COUNTRY_ADJACENCY_JSON, "application/json")
         elif path == "/borders/dish_flower":
             self.send_body(DISH_FLOWER_JSON, "application/json")
+        elif path == "/assets/seeq-logo.png":
+            try:
+                with open(LOGO_PATH, "rb") as f:
+                    self.send_body(f.read(), "image/png")
+            except OSError:
+                self._err(404, "no logo asset")
         elif path.startswith("/flags/") and path.endswith(".svg"):
             # strict [a-z]{2} check before touching the filesystem -- this
             # segment comes straight from the URL, never trust it as a path
@@ -2897,7 +3297,7 @@ class H(http.server.SimpleHTTPRequestHandler):
         elif path == "/actions/state":
             engine = {}
             try:
-                with open(os.path.join(DATA, "engine.json")) as f:
+                with open(ENGINE_JSON) as f:
                     engine = json.load(f)
             except Exception:
                 pass
@@ -2959,6 +3359,8 @@ class H(http.server.SimpleHTTPRequestHandler):
                 self._action_antenna_remove(body)
             elif path == "/action/station/set":
                 self._action_station_set(body)
+            elif path == "/action/freq_lock/check":
+                self._action_freq_lock_check()
             elif path == "/action/qrz/sync":
                 self._action_qrz_sync()
             elif path == "/action/qrz/refresh":
@@ -3045,6 +3447,21 @@ class H(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             log_action(f"UNKEY: rigctl T 0 error: {e!r}")
         killed = _pkill(QSO_PY)
+        # qso.py is confirmed not running at this point (just killed, or
+        # was never running) -- safe to clear its last engine.json snapshot,
+        # which it never resets on its own on an abnormal exit (crash,
+        # kill -9, anything skipping its own cleanup). Without this, a
+        # stale tx:true snapshot sits on disk forever and the dashboard's
+        # "ON AIR" siren/countdown never clears no matter how many times
+        # STOP is clicked -- purely a stale-display bug (see txIsLive() in
+        # PAGE's JS), but STOP should visibly resolve it immediately
+        # rather than leaving a ghost for the next unrelated engine.json
+        # write that may never come. Never raises -- a display cleanup
+        # miss must not turn a successful UNKEY into a reported failure.
+        try:
+            atomic_write_json(ENGINE_JSON, idle_engine_snapshot())
+        except OSError as e:
+            log_action(f"UNKEY: engine.json idle-reset error: {e!r}")
         ptt = None
         try:
             r2 = subprocess.run(["rigctl", "-m", RIG_MODEL, "-r", CAT_PORT, "-s", CAT_BAUD, "t"],
@@ -3170,11 +3587,18 @@ class H(http.server.SimpleHTTPRequestHandler):
         self._ok({"removed": aid, "antennas": lst, "was_active": was_active})
 
     def _action_station_set(self, body):
-        """Config-only: writes ANTENNA/BAND/DIAL_HZ/TX_PWR to station.conf.
-        Never touches the CAT port — qso.py/rx-loop only ever READ these keys
-        (at their own process start) and verify the operator has manually
-        retuned the radio to match before every key-up; this endpoint can't
-        retune the rig itself, by design (see BANDS' comment above)."""
+        """Writes ANTENNA/BAND/DIAL_HZ/TX_PWR to station.conf AND retunes the
+        radio via CAT (rigctl F, confirmed by a read-back) to match, right
+        away -- explicit, attended, one-shot: it's the direct, immediate
+        result of the operator clicking Save, same trust level as any other
+        _action_* handler here. Blocked entirely while qso.py is running,
+        same as before: one CAT-port owner at a time (ground rule #3), and
+        qso.py's own frozen frequency read-back watchdog must never race a
+        change made out from under it mid-chase. Never touches PTT. A failed
+        retune does NOT fail the save -- station.conf is still the operator's
+        source of truth even if the rig didn't confirm; see the response
+        note. (Previously this endpoint never touched the CAT port at all --
+        see git history if that reasoning is ever needed again.)"""
         if _proc_running(QSO_PY):
             return self._err(409, "stop the chaser before changing station config")
         aid = str(body.get("antenna_id", "")).strip()
@@ -3217,14 +3641,54 @@ class H(http.server.SimpleHTTPRequestHandler):
             _pkill(RXLOOP_SH)
             _spawn_detached(["bash", RXLOOP_SH], os.path.join(DATA, "rx-loop.log"))
             rx_restarted = True
+        if DRYRUN:
+            log_action(f"[DRYRUN] would retune: rigctl F {freq_hz}")
+            retuned, retune_err = False, "dryrun — radio not touched"
+        else:
+            set_ok, set_err = _rigctl_set_freq(freq_hz)
+            readback_hz, readback_err = (_rigctl_read_freq() if set_ok else (None, None))
+            retuned = bool(set_ok and readback_hz == freq_hz)
+            retune_err = set_err or readback_err or (
+                None if retuned else f"read back {readback_hz} Hz")
         log_action(f"station/set: antenna={aid} band={band} dial_hz={freq_hz} tx_pwr={tx_pwr_out} "
-                   f"rx_restarted={rx_restarted}")
+                   f"rx_restarted={rx_restarted} retuned={retuned}"
+                   + (f" ({retune_err})" if not retuned else ""))
         self._ok({
             "antenna": aid, "band": band, "dial_hz": freq_hz, "tx_pwr": tx_pwr_out,
-            "rx_restarted": rx_restarted,
-            "note": f"Saved and applied. Retune the radio to {freq_hz/1e6:.3f} MHz before chasing — "
-                    f"config takes effect immediately; nothing else to restart."
+            "rx_restarted": rx_restarted, "retuned": retuned,
+            "note": _retune_result_note(freq_hz, retuned, retune_err),
         })
+
+    def _action_freq_lock_check(self):
+        """One tick of Freq Lock (see wireFreqLock() in PAGE's JS): read the
+        radio's actual CAT frequency, and if it doesn't match the currently
+        configured DIAL_HZ, retune it back. Called repeatedly (~5s) by an
+        explicitly-armed client-side toggle -- this endpoint itself has no
+        memory of "armed", each call is just "check once, correct if
+        needed", same trust model as every other one-shot _action_* handler.
+
+        Refuses to touch the CAT port AT ALL while qso.py is running: one
+        owner at a time (ground rule #3), and qso.py's own frozen per-key
+        frequency read-back must never race a correction landing mid-chase.
+        This is a routine, expected condition (not an error) whenever
+        chasing -- returns 200 with skipped=... every such tick, not 409."""
+        if DRYRUN:
+            return self._ok({"skipped": "dryrun", "locked": None})
+        if _proc_running(QSO_PY):
+            return self._ok({"skipped": "chaser running — freq lock paused", "locked": None})
+        expected_hz = CONFIG.get("dial_hz") or 0
+        if not expected_hz:
+            return self._ok({"skipped": "no band configured yet", "locked": None})
+        actual_hz, err = _rigctl_read_freq()
+        if actual_hz is None:
+            log_action(f"freq_lock: CAT read failed: {err}")
+            return self._ok({"skipped": f"CAT read failed: {err}", "locked": None})
+        if actual_hz == expected_hz:
+            return self._ok({"locked": True, "hz": actual_hz})
+        set_ok, set_err = _rigctl_set_freq(expected_hz)
+        log_action(f"freq_lock: drift detected (radio {actual_hz} Hz, expected {expected_hz} Hz) — "
+                   + (f"corrected" if set_ok else f"retune FAILED: {set_err}"))
+        self._ok({"locked": False, "was_hz": actual_hz, "corrected_to_hz": expected_hz, "retune_ok": set_ok})
 
     def _action_qrz_sync(self):
         """Spawns logsync.py detached (real upload, not --dry-run) -- this
@@ -3240,7 +3704,12 @@ class H(http.server.SimpleHTTPRequestHandler):
         if DRYRUN:
             log_action(f"[DRYRUN] would sync to QRZ: python3 {LOGSYNC_PY}")
             return self._ok({"started": True, "dryrun": True})
-        _spawn_detached(["python3", LOGSYNC_PY], QRZ_SYNC_LOG)
+        # Wrapped in `bash -c ... ; echo $?` so the exit code survives past
+        # this detached, fire-and-forget process -- _qrz_last_sync_ok() reads
+        # it back to drive the widget's red-border failure flag. shlex-quoted
+        # since LOGSYNC_PY/QRZ_SYNC_EXIT are filesystem paths, not user input.
+        wrapped = f"python3 {shlex.quote(LOGSYNC_PY)}; echo $? > {shlex.quote(QRZ_SYNC_EXIT)}"
+        _spawn_detached(["bash", "-c", wrapped], QRZ_SYNC_LOG)
         log_action(f"qrz/sync: spawned python3 {LOGSYNC_PY}")
         self._ok({"started": True})
 

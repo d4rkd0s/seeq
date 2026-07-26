@@ -91,6 +91,121 @@ def run_qrz_job_due(elapsed_ms, period_ms, offset_ms, last_fire_ms):
     return json.loads(r.stdout)
 
 
+def extract_qrz_auto_should_arm_js():
+    """Slice qrzAutoShouldArmOnLoad() verbatim out of dashboard.py's rendered
+    PAGE, between its declaration and the comment introducing the next
+    function (qrzWidgetShowsSyncFailed)."""
+    page = _dashboard_module().PAGE
+    start = page.index("function qrzAutoShouldArmOnLoad(")
+    end = page.index("\n// Pure predicate behind the QRZ widget", start)
+    snippet = page[start:end]
+    assert "storedPref!=='0'" in snippet, (
+        "qrzAutoShouldArmOnLoad() not found between markers -- dashboard.py "
+        "layout changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_qrz_auto_should_arm(stored_pref):
+    """Evaluate the real qrzAutoShouldArmOnLoad() JS (via Node).
+    stored_pref=None maps to JS null (never set in localStorage)."""
+    js = extract_qrz_auto_should_arm_js()
+    pref = "null" if stored_pref is None else json.dumps(stored_pref)
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(qrzAutoShouldArmOnLoad(%s)));"
+    ) % pref
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
+def extract_qrz_widget_sync_failed_js():
+    """Slice qrzWidgetShowsSyncFailed() verbatim out of dashboard.py's
+    rendered PAGE, between its declaration and the qrzAuto* state variables
+    that follow it."""
+    page = _dashboard_module().PAGE
+    start = page.index("function qrzWidgetShowsSyncFailed(")
+    end = page.index("\nlet qrzAutoArmedAt", start)
+    snippet = page[start:end]
+    assert "lastSyncOk===false" in snippet, (
+        "qrzWidgetShowsSyncFailed() not found between markers -- dashboard.py "
+        "layout changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_qrz_widget_sync_failed(last_sync_ok):
+    """Evaluate the real qrzWidgetShowsSyncFailed() JS (via Node).
+    last_sync_ok=None maps to JS null (never synced yet)."""
+    js = extract_qrz_widget_sync_failed_js()
+    val = "null" if last_sync_ok is None else json.dumps(last_sync_ok)
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(qrzWidgetShowsSyncFailed(%s)));"
+    ) % val
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
+def extract_decode_other_callsign_js():
+    """Slice decodeOtherCallsign() verbatim out of dashboard.py's rendered
+    PAGE, between its declaration and the tick() function that follows it.
+    Depends only on isGrid() (defined earlier in PAGE), so the extracted
+    snippet includes that too via a wider start marker isn't needed --
+    isGrid() is re-declared standalone here since it's a tiny, stable pure
+    function and duplicating it keeps this extractor self-contained."""
+    page = _dashboard_module().PAGE
+    start = page.index("function decodeOtherCallsign(")
+    end = page.index("\nasync function tick(", start)
+    snippet = page[start:end]
+    assert "return tk[0];" in snippet, (
+        "decodeOtherCallsign() not found between markers -- dashboard.py "
+        "layout changed, update the markers in tools/test_dashboard_js.py")
+    is_grid_start = page.index("function isGrid(")
+    is_grid_end = page.index("\n", is_grid_start)
+    return page[is_grid_start:is_grid_end] + "\n" + snippet
+
+
+def run_decode_other_callsign(msg, mycall):
+    """Evaluate the real decodeOtherCallsign() JS (via Node)."""
+    js = extract_decode_other_callsign_js()
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(decodeOtherCallsign(%s, %s)));"
+    ) % (json.dumps(msg), json.dumps(mycall))
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
+def extract_freq_lock_should_arm_js():
+    """Slice freqLockShouldArmOnLoad() verbatim out of dashboard.py's
+    rendered PAGE, between its declaration and wireFreqLock() that follows
+    it."""
+    page = _dashboard_module().PAGE
+    start = page.index("function freqLockShouldArmOnLoad(")
+    end = page.index("\nfunction wireFreqLock(", start)
+    snippet = page[start:end]
+    assert "storedPref!=='0'" in snippet, (
+        "freqLockShouldArmOnLoad() not found between markers -- dashboard.py "
+        "layout changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_freq_lock_should_arm(stored_pref):
+    """Evaluate the real freqLockShouldArmOnLoad() JS (via Node).
+    stored_pref=None maps to JS null (never set in localStorage)."""
+    js = extract_freq_lock_should_arm_js()
+    pref = "null" if stored_pref is None else json.dumps(stored_pref)
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(freqLockShouldArmOnLoad(%s)));"
+    ) % pref
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
 def extract_secs_to_next_slot_js():
     """Slice secsToNextSlot() verbatim out of dashboard.py's rendered PAGE,
     between its declaration and the updateNextTx() function that uses it."""
@@ -176,6 +291,21 @@ def run_tx_line_active(e, chaser_running):
     return json.loads(r.stdout)
 
 
+def run_tx_is_live(e, chaser_running):
+    """txIsLive() lives in the same source span extract_tx_line_helpers_js()
+    already captures (declared right after txLineActive(), before
+    resolveTargetGrid()), so no separate extraction marker is needed."""
+    js = extract_tx_line_helpers_js()
+    e_json = "null" if e is None else json.dumps(e)
+    script = js + (
+        "\nprocess.stdout.write(JSON.stringify(txIsLive(%s, %s)));"
+    ) % (e_json, "true" if chaser_running else "false")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return json.loads(r.stdout)
+
+
 def run_resolve_target_grid(target, engine_grid, recent_grid_by_call):
     js = extract_is_grid_js() + "\n" + extract_tx_line_helpers_js()
     script = js + (
@@ -208,6 +338,18 @@ def run_snr_risk_level(floor_db):
     if r.returncode != 0:
         raise RuntimeError("node failed: %s" % r.stderr)
     return json.loads(r.stdout)
+
+
+def run_snr_floor_label(floor_db):
+    """snrFloorLabel() lives in the same source span extract_snr_risk_level_js()
+    already captures (between snrRiskLevel()'s declaration and loadCfg()),
+    so no separate extraction marker is needed."""
+    js = extract_snr_risk_level_js()
+    script = js + "\nprocess.stdout.write(snrFloorLabel(%r));" % floor_db
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return r.stdout
 
 
 def extract_rough_tx_label_js():
@@ -322,6 +464,85 @@ def extract_bp_pills_html_js():
 def run_bp_pills_html(top):
     js = extract_bp_pills_html_js()
     script = js + "\nprocess.stdout.write(bpPillsHtml(%s));" % json.dumps(top)
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return r.stdout
+
+
+def extract_terminator_path_d_js():
+    """Slice the MW/MH constants, ll2xy(), and terminatorPathD() verbatim
+    out of dashboard.py's rendered PAGE -- terminatorPathD() projects
+    bin/astro.py's [lat,lon] night-hemisphere polygon through the map's
+    real equirectangular projection into an SVG path 'd' string."""
+    page = _dashboard_module().PAGE
+    c_start = page.index("const MW=1000, MH=500;")
+    c_end = page.index("\n", c_start)
+    start = page.index("function ll2xy(")
+    end = page.index("\nfunction isGrid(", start)
+    snippet = page[start:end]
+    assert "function terminatorPathD(" in snippet, (
+        "terminatorPathD() not found between markers -- dashboard.py layout "
+        "changed, update the markers in tools/test_dashboard_js.py")
+    return page[c_start:c_end] + "\n" + snippet
+
+
+def run_terminator_path_d(poly):
+    js = extract_terminator_path_d_js()
+    script = js + "\nprocess.stdout.write(terminatorPathD(%s));" % json.dumps(poly)
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return r.stdout
+
+
+def extract_moon_widget_html_js():
+    """Slice escapeHtml()+moonWidgetHtml() verbatim out of dashboard.py's
+    rendered PAGE (the Moon widget's phase/illumination/sub-lunar-point
+    text, driven by /astro/state's "moon" field). escapeHtml()'s own full
+    body is grabbed via its stable next-function marker (bpPillsHtml),
+    same technique as extract_bp_pills_html_js() above -- reused rather
+    than re-derived so both stay correct if escapeHtml() ever moves."""
+    page = _dashboard_module().PAGE
+    esc_start = page.index("function escapeHtml(")
+    esc_end = page.index("\nfunction bpPillsHtml(", esc_start)
+    start = page.index("function moonWidgetHtml(")
+    end = page.index("\nfunction renderMoonMarker(", start)
+    return page[esc_start:esc_end] + "\n" + page[start:end]
+
+
+def run_moon_widget_html(m):
+    js = extract_moon_widget_html_js()
+    script = js + "\nprocess.stdout.write(moonWidgetHtml(%s));" % json.dumps(m)
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise RuntimeError("node failed: %s" % r.stderr)
+    return r.stdout
+
+
+def extract_mode_card_html_js():
+    """Slice modeCardHtml()+renderModeChooserButtons()+modeLabelFor()+
+    escapeHtml() verbatim out of dashboard.py's rendered PAGE (the mode
+    chooser's explanatory cards -- label, description, protocol link, and
+    an available/planned Select-vs-coming-soon footer -- driven by
+    mode_registry.MODE_INFO, see bin/mode_registry.py). modeCardHtml() is
+    declared before escapeHtml() in source but calls it (JS function
+    declarations hoist within a scope, so this is fine in the browser);
+    the slice has to include both since they're extracted out of that
+    scope for this test."""
+    page = _dashboard_module().PAGE
+    start = page.index("function modeCardHtml(")
+    end = page.index("\nfunction bpPillsHtml(", start)
+    snippet = page[start:end]
+    assert "function escapeHtml(" in snippet, (
+        "escapeHtml() not found between markers -- dashboard.py layout "
+        "changed, update the markers in tools/test_dashboard_js.py")
+    return snippet
+
+
+def run_mode_card_html(key, m):
+    js = extract_mode_card_html_js()
+    script = js + "\nprocess.stdout.write(modeCardHtml(%s, %s));" % (json.dumps(key), json.dumps(m))
     r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
     if r.returncode != 0:
         raise RuntimeError("node failed: %s" % r.stderr)
@@ -513,6 +734,91 @@ class TestQrzJobDue(unittest.TestCase):
         self.assertTrue(run_qrz_job_due(180000, self.PERIOD, self.STAGGER, self.STAGGER))
 
 
+class TestQrzAutoShouldArmOnLoad(unittest.TestCase):
+    """Auto sync & upload must default ON the first time a key is confirmed
+    on file (a real key sitting unsynced with nothing flagging it was the
+    bug) -- but an explicit prior opt-out must stick across reloads."""
+
+    def test_never_set_defaults_to_armed(self):
+        self.assertTrue(run_qrz_auto_should_arm(None))
+
+    def test_explicit_prior_on_stays_armed(self):
+        self.assertTrue(run_qrz_auto_should_arm("1"))
+
+    def test_explicit_prior_off_stays_disarmed(self):
+        self.assertFalse(run_qrz_auto_should_arm("0"))
+
+
+class TestFreqLockShouldArmOnLoad(unittest.TestCase):
+    """Freq Lock must default ON (Logan's explicit feedback after trying the
+    off-by-default version -- a config-panel checkbox is too easy to miss)
+    but still respect an explicit prior opt-out across reloads."""
+
+    def test_never_set_defaults_to_armed(self):
+        self.assertTrue(run_freq_lock_should_arm(None))
+
+    def test_explicit_prior_on_stays_armed(self):
+        self.assertTrue(run_freq_lock_should_arm("1"))
+
+    def test_explicit_prior_off_stays_disarmed(self):
+        self.assertFalse(run_freq_lock_should_arm("0"))
+
+
+class TestQrzWidgetShowsSyncFailed(unittest.TestCase):
+    """Red-border flag: only an explicit completed failure (exit code != 0)
+    lights it up -- never-synced-yet (null) must NOT look like a failure."""
+
+    def test_never_synced_yet_is_not_a_failure(self):
+        self.assertFalse(run_qrz_widget_sync_failed(None))
+
+    def test_last_sync_ok_is_not_a_failure(self):
+        self.assertFalse(run_qrz_widget_sync_failed(True))
+
+    def test_last_sync_failed_shows_red_border(self):
+        self.assertTrue(run_qrz_widget_sync_failed(False))
+
+
+class TestDecodeOtherCallsign(unittest.TestCase):
+    """Feeds the Decodes table's flag column -- must correctly pull the
+    OTHER station's callsign out of CQ lines and standard exchange lines,
+    regardless of which side of the exchange mycall is on."""
+
+    MYCALL = "N0CALL"
+
+    def test_plain_cq_with_grid(self):
+        self.assertEqual(run_decode_other_callsign("CQ K1ABC FN20", self.MYCALL), "K1ABC")
+
+    def test_cq_with_qualifier_and_grid(self):
+        self.assertEqual(run_decode_other_callsign("CQ DX K1ABC FN20", self.MYCALL), "K1ABC")
+        self.assertEqual(run_decode_other_callsign("CQ POTA K1ABC FN20", self.MYCALL), "K1ABC")
+
+    def test_cq_without_grid(self):
+        self.assertEqual(run_decode_other_callsign("CQ K1ABC", self.MYCALL), "K1ABC")
+
+    def test_bare_cq_returns_none(self):
+        self.assertIsNone(run_decode_other_callsign("CQ", self.MYCALL))
+
+    def test_exchange_where_mycall_is_first_token(self):
+        self.assertEqual(run_decode_other_callsign("N0CALL K1ABC -12", self.MYCALL), "K1ABC")
+
+    def test_exchange_where_mycall_is_second_token(self):
+        self.assertEqual(run_decode_other_callsign("K1ABC N0CALL FN20", self.MYCALL), "K1ABC")
+
+    def test_exchange_report_and_rr73_variants(self):
+        self.assertEqual(run_decode_other_callsign("K1ABC N0CALL R-09", self.MYCALL), "K1ABC")
+        self.assertEqual(run_decode_other_callsign("K1ABC N0CALL RR73", self.MYCALL), "K1ABC")
+        self.assertEqual(run_decode_other_callsign("K1ABC N0CALL 73", self.MYCALL), "K1ABC")
+
+    def test_third_party_exchange_falls_back_to_first_token(self):
+        self.assertEqual(run_decode_other_callsign("W1AW K1ABC RR73", self.MYCALL), "W1AW")
+
+    def test_empty_message_returns_none(self):
+        self.assertIsNone(run_decode_other_callsign("", self.MYCALL))
+
+    def test_single_token_non_cq_returns_none(self):
+        self.assertIsNone(run_decode_other_callsign("garbled", self.MYCALL))
+
+
 class TestShouldFlashNewCountry(unittest.TestCase):
     """The new-country flash must be edge-triggered off an ACTUAL
     transmission toward a new-country target -- never off the passive
@@ -598,6 +904,29 @@ class TestTxLineActive(unittest.TestCase):
         self.assertFalse(run_tx_line_active(None, True))
 
 
+class TestTxIsLive(unittest.TestCase):
+    """Drives the cockpit's 'ON AIR' pulse/countdown, the STOP button's
+    live-glow, and (via the same principle applied in refreshActionsState())
+    the page-wide TX siren. engine.json's tx field is a snapshot qso.py
+    never resets on an abnormal exit -- a killed/crashed run can leave
+    tx:true on disk forever, which without this chaserRunning guard means
+    STOP can never visibly clear the "ON AIR -- unkey now" state (STOP's
+    real job, force-unkeying the physical rig, already happened; only the
+    stale display was left behind)."""
+
+    def test_tx_true_with_chaser_running_is_live(self):
+        self.assertTrue(run_tx_is_live({"tx": True}, True))
+
+    def test_stale_tx_true_while_chaser_not_running_is_not_live(self):
+        self.assertFalse(run_tx_is_live({"tx": True}, False))
+
+    def test_tx_false_with_chaser_running_is_not_live(self):
+        self.assertFalse(run_tx_is_live({"tx": False}, True))
+
+    def test_null_engine_is_not_live(self):
+        self.assertFalse(run_tx_is_live(None, True))
+
+
 class TestResolveTargetGrid(unittest.TestCase):
     """Many CQs omit their grid, and engine.json's grid field is only ever
     set from the CQ we originally answered -- so a gridless CQ meant the TX
@@ -650,6 +979,42 @@ class TestSnrRiskLevel(unittest.TestCase):
         above = run_snr_risk_level(15)
         self.assertEqual(below["pct"], 100)
         self.assertEqual(above["pct"], 0)
+
+
+class TestSnrFloorLabel(unittest.TestCase):
+    """snrFloorLabel(): one distinct description per dB across the
+    slider's full -30..+10 range -- every step reads as fresh, specific
+    wording rather than repeating a handful of risk buckets."""
+
+    def test_every_step_in_slider_range_has_a_label(self):
+        seen = set()
+        for db in range(-30, 11):
+            label = run_snr_floor_label(db)
+            self.assertTrue(label, db)
+            seen.add(label)
+        # 41 distinct dB values -> 41 distinct labels, no two steps sharing text.
+        self.assertEqual(len(seen), 41)
+
+    def test_station_default_label(self):
+        self.assertIn("Marginal", run_snr_floor_label(-16))
+
+    def test_dx_mode_floor_label_mentions_dx(self):
+        self.assertIn("DX", run_snr_floor_label(-18))
+
+    def test_strongest_end_reads_positive(self):
+        label = run_snr_floor_label(10).lower()
+        self.assertTrue("strong" in label or "boom" in label)
+
+    def test_weakest_end_reads_extreme(self):
+        label = run_snr_floor_label(-30).lower()
+        self.assertTrue("edge" in label or "buried" in label or "fringe" in label)
+
+    def test_clamps_beyond_slider_range(self):
+        self.assertEqual(run_snr_floor_label(-30), run_snr_floor_label(-99))
+        self.assertEqual(run_snr_floor_label(10), run_snr_floor_label(99))
+
+    def test_rounds_non_integer_input(self):
+        self.assertEqual(run_snr_floor_label(-16), run_snr_floor_label(-16.4))
 
 
 class TestRoughTxLabel(unittest.TestCase):
@@ -748,6 +1113,63 @@ class TestHeaderStatusLabel(unittest.TestCase):
         self.assertEqual(run_header_status_label(False, False, False), "Idle")
 
 
+class TestTerminatorPathD(unittest.TestCase):
+    """terminatorPathD(): projects bin/astro.py's [lat,lon] night-hemisphere
+    polygon through the map's real ll2xy() equirectangular projection into
+    an SVG path 'd' string."""
+
+    def test_empty_polygon_renders_empty_string(self):
+        self.assertEqual(run_terminator_path_d([]), "")
+
+    def test_starts_with_move_and_ends_with_close(self):
+        d = run_terminator_path_d([[0, -180], [10, 0], [0, 180]])
+        self.assertTrue(d.startswith("M"))
+        self.assertTrue(d.rstrip().endswith("Z"))
+
+    def test_point_count_matches_input(self):
+        poly = [[0, -180], [45, -90], [0, 0], [-45, 90], [0, 180]]
+        d = run_terminator_path_d(poly)
+        # One M + (n-1) L commands for n points.
+        self.assertEqual(d.count("L"), len(poly) - 1)
+
+    def test_known_point_projects_to_expected_pixel(self):
+        # lat=0,lon=-180 (map's far west edge, vertical center) -> x=0, y=MH/2=250.
+        d = run_terminator_path_d([[0, -180]])
+        self.assertTrue(d.startswith("M0.00 250.00"))
+
+    def test_north_pole_projects_to_top_edge(self):
+        d = run_terminator_path_d([[90, 0]])
+        self.assertTrue(d.startswith("M500.00 0.00"))
+
+
+class TestMoonWidgetHtml(unittest.TestCase):
+    """moonWidgetHtml(): pure rendering for the Moon widget's phase name,
+    illuminated percentage, age, and sub-lunar point text."""
+
+    SAMPLE = {"lat": -12.3, "lon": 45.6, "illuminated_fraction": 0.796,
+              "elongation_deg": 126.3, "phase_name": "Waxing Gibbous", "age_days": 10.36}
+
+    def test_no_data_renders_placeholder(self):
+        self.assertEqual(run_moon_widget_html(None), "no data")
+
+    def test_phase_name_and_percentage_visible(self):
+        html = run_moon_widget_html(self.SAMPLE)
+        self.assertIn("Waxing Gibbous", html)
+        self.assertIn("80% illuminated", html)
+
+    def test_age_and_subpoint_visible(self):
+        html = run_moon_widget_html(self.SAMPLE)
+        self.assertIn("10.4d since new moon", html)
+        self.assertIn("-12.3", html)
+        self.assertIn("45.6", html)
+
+    def test_hostile_phase_name_is_escaped_not_rendered_as_html(self):
+        hostile = dict(self.SAMPLE, phase_name="<img src=x onerror=alert(1)>")
+        html = run_moon_widget_html(hostile)
+        self.assertNotIn("<img", html)
+        self.assertIn("&lt;img", html)
+
+
 class TestBpPillsHtml(unittest.TestCase):
     """bpPillsHtml(): pure rendering for the bandpulse.net top-3-bands
     banner -- one <span class="bpPill st-<state>"> per band, state drives
@@ -795,6 +1217,57 @@ class TestBpPillsHtml(unittest.TestCase):
             {"id": "40m", "name": "40 m", "state": "green",
              "label": '"><script>alert(1)</script>', "score": 88},
         ])
+        self.assertNotIn("<script>", html)
+
+
+class TestModeCardHtml(unittest.TestCase):
+    """modeCardHtml(): one explanatory card per mode_registry.MODE_INFO
+    entry in the boot/mode chooser -- label, description, a link to the
+    protocol's own reference page, and a Select button (available) or a
+    muted "coming soon" tag (planned, e.g. FT4/JS8/Winlink) instead."""
+
+    AVAILABLE = {"label": "FT8", "status": "available",
+                 "description": "Weak-signal digital mode.",
+                 "protocol_url": "https://wsjt.sourceforge.io/wsjtx.html"}
+    PLANNED = {"label": "JS8", "status": "planned",
+               "description": "Adds free-text keyboard-to-keyboard messaging.",
+               "protocol_url": "http://js8call.com/"}
+
+    def test_available_mode_gets_select_button(self):
+        html = run_mode_card_html("ft8", self.AVAILABLE)
+        self.assertIn('data-mode="ft8"', html)
+        self.assertIn("Select FT8", html)
+
+    def test_available_mode_has_no_planned_badge_or_soon_tag(self):
+        html = run_mode_card_html("ft8", self.AVAILABLE)
+        self.assertNotIn("modeCardBadge", html)
+        self.assertNotIn("coming soon", html)
+        self.assertNotIn("planned", html)  # not even in the card's class list
+
+    def test_planned_mode_has_no_select_button(self):
+        html = run_mode_card_html("js8", self.PLANNED)
+        self.assertNotIn("data-mode=", html)
+        self.assertIn("coming soon", html)
+        self.assertIn("modeCardBadge", html)
+
+    def test_description_and_protocol_link_present(self):
+        html = run_mode_card_html("ft8", self.AVAILABLE)
+        self.assertIn("Weak-signal digital mode.", html)
+        self.assertIn('href="https://wsjt.sourceforge.io/wsjtx.html"', html)
+        self.assertIn("target=_blank", html)
+
+    def test_hostile_description_is_escaped_not_rendered_as_html(self):
+        # MODE_INFO is server-authored today, not user input -- but
+        # escapeHtml() is cheap and this keeps the rendering path safe if
+        # that ever changes (e.g. a future mode's info sourced externally).
+        hostile = dict(self.AVAILABLE, description="<img src=x onerror=alert(1)>")
+        html = run_mode_card_html("ft8", hostile)
+        self.assertNotIn("<img", html)
+        self.assertIn("&lt;img", html)
+
+    def test_hostile_protocol_url_cannot_break_out_of_href_attribute(self):
+        hostile = dict(self.AVAILABLE, protocol_url='javascript:alert(1)"><script>alert(2)</script>')
+        html = run_mode_card_html("ft8", hostile)
         self.assertNotIn("<script>", html)
 
 
