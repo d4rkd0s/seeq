@@ -24,16 +24,25 @@ Usage:
 import argparse
 import os
 import re
+import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "bin"))
 import adif
+import dxcc
 import qrz_api
 import station_config
 
 _C = station_config.load()
 DEFAULT_ADIF = os.path.expanduser(_C.get("ADIF", "~/.local/share/WSJT-X/wsjtx_log.adi"))
+
+# Upload-only enrichment: QRZ doesn't publicly document a COMMENT length cap
+# (checked https://www.qrz.com/docs/logbook30/lossless-adif and the ADIF
+# import/export docs -- QRZ states it stores fields it doesn't recognize
+# without rejecting the record, but no numeric limit is published). 200 is a
+# conservative guess, easy to raise later if a real cap turns out looser.
+COMMENT_MAX_LEN = 200
 
 CONF_DIR = os.path.expanduser("~/.config/cota")
 KEY_PATH = os.path.join(CONF_DIR, "qrz.key")
@@ -129,6 +138,58 @@ def extract_call(rec_str):
     return rec_str[m.end():m.end() + n]
 
 
+def seeq_version(run=subprocess.run):
+    """SeeQ's own version tag, via `git describe --tags` -- for the upload
+    comment's top-priority piece (see build_comment). `run` is injectable
+    for tests. Never raises: a non-git deploy, no tags yet, or git itself
+    missing just means the version piece gets omitted, same fail-open
+    convention as read_key/read_xml_credentials above."""
+    try:
+        r = run(["git", "-C", ROOT, "describe", "--tags"],
+                capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    v = r.stdout.strip()
+    return v or None
+
+
+def build_comment(pieces, max_len):
+    """Join priority-ordered `pieces` with ' | ', keeping as many as fit
+    within `max_len` -- lowest-priority pieces drop first. The
+    highest-priority piece is never dropped: if it alone doesn't fit, it's
+    hard-truncated instead so the upload always carries at least something.
+    Falsy pieces (None/'') are skipped. '' if max_len<=0 or nothing to say."""
+    pieces = [p for p in pieces if p]
+    if max_len <= 0 or not pieces:
+        return ""
+    sep = " | "
+    kept, total = [], 0
+    for p in pieces:
+        add = (len(sep) if kept else 0) + len(p)
+        if total + add > max_len:
+            break
+        kept.append(p)
+        total += add
+    if kept:
+        return sep.join(kept)
+    return pieces[0][:max_len]
+
+
+def inject_comment(rec_str, comment):
+    """Add an ADIF <comment:len>value field to `rec_str` just before <eor>,
+    if `comment` is non-empty and the record doesn't already carry one
+    (never duplicate/overwrite -- qso.py's local ADIF never writes COMMENT
+    today, but this stays safe if that ever changes). This only affects the
+    in-memory string POSTed to QRZ, never the local wsjtx_log.adi file
+    itself, which stays exactly what qso.py wrote (frozen -- see CLAUDE.md)."""
+    if not comment or re.search(r"<comment:", rec_str, re.I):
+        return rec_str
+    field = f"<comment:{len(comment)}>{comment} "
+    return re.sub(r"(<eor>)", field + r"\1", rec_str, count=1, flags=re.I)
+
+
 def parse_qrz_response(resp):
     """Kept for compatibility — the protocol parsing moved to qrz_api.py
     (shared with the dashboard's FETCH/STATUS support)."""
@@ -165,12 +226,25 @@ def main():
 
     print(f"log-sync: {len(recs)} new record(s) since byte offset {offset} in {args.adif}"
           + ("  [dry-run]" if args.dry_run else ""))
+    version = seeq_version()
     uploaded = 0
     for rec, end in recs:
         rec_str = rec.decode("utf-8", errors="replace").strip()
         call = extract_call(rec_str)
+        # Upload-only enrichment -- never touches the local ADIF file qso.py
+        # wrote (frozen). Priority order: SeeQ's own version first (always
+        # wins the space if anything has to be chopped), then the worked
+        # station's DXCC country (not already present in any field qso.py
+        # writes -- see log_qso() -- and useless for QRZ's own QSO matching,
+        # which keys on call/band/mode/time, not free-text COMMENT).
+        comment = build_comment([
+            f"SeeQ {version}" if version else None,
+            dxcc.country_for_call(call) or None,
+        ], COMMENT_MAX_LEN)
+        rec_str = inject_comment(rec_str, comment)
         if args.dry_run:
-            print(f"  [dry-run] would POST {len(rec)} bytes for {call} -> {API_URL}")
+            print(f"  [dry-run] would POST {len(rec_str)} bytes for {call} "
+                  f"(comment: {comment or '(none)'}) -> {API_URL}")
             uploaded += 1
             continue
         result, reason = qrz_post(key, rec_str)

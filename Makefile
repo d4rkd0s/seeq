@@ -8,6 +8,7 @@ test:
 	@echo "=== Unit tests ==="
 	python3 tools/test_sequencer.py
 	python3 tools/test_qrz.py
+	python3 tools/test_logsync.py
 	python3 tools/test_pipeline.py
 	python3 tools/test_dashboard_js.py
 	python3 tools/test_dxcc.py
