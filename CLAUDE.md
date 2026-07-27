@@ -107,6 +107,58 @@ or https://github.com/d4rkd0s/seeq/releases before bumping.
 7. Verify server-side, not just locally — pull the pushed tag's tree via the GitHub API and grep
    raw file contents for the callsign/grid pattern above. Trust but verify what's actually public.
 
+## JS8 mode — in progress, read this before touching `bin/modes/js8/`
+
+**Status as of 2026-07-26: mid-pivot. Nothing about JS8 is released.**
+
+What is on `master` today is a **wrapper** that drives JS8Call-improved (a third-party
+Qt GUI) over its TCP API. Logan's decision on 2026-07-26 is that this is the wrong
+shape: **JS8 must be a full native SeeQ mode** — our own protocol implementation, tone
+generation, decoder and frontend, exactly as FT8 is ours. Not a remote control for
+someone else's application.
+
+The wrapper is deliberately kept, for now, as a **cross-check oracle**. JS8Call's
+`TX.FRAME` API event exposes the exact 79-tone channel-symbol sequence for any message,
+and with the rig set to `None` it will encode without transmitting — which makes every
+stage of our own modem verifiable bit-exactly, offline.
+
+- **[docs/js8/PROTOCOL.md](docs/js8/PROTOCOL.md)** — the full wire spec, extracted from
+  JS8Call's C++ source. **This is the artifact that makes JS8Call deletable.** Frame
+  geometry, CRC-12, LDPC(174,87), submode table, Varicode layouts, decoder pipeline,
+  plus the fork's own documentation errata.
+- **[docs/js8/NATIVE-PLAN.md](docs/js8/NATIVE-PLAN.md)** — the approved phased plan
+  (P0 spec → P1 encoder → P2 varicode → P3 synthesis → P4 decoder → P5 protocol →
+  P6 UI → P7 delete JS8Call → P8 first on-air TX), each phase with a gate.
+
+**Two hard rules from Logan, both non-negotiable:**
+
+1. **Deleting JS8Call entirely is the definition of done.** JS8 mode is not "finished"
+   while that AppImage is still on the machine. That is P7, and it gates the release.
+2. **JS8 ships as `v4.0.0`** — a major bump — and only after Logan has personally
+   exercised the mode on the live dashboard and said go. Commits land on `master` as
+   work progresses; the release checklist does not run before that approval.
+
+**Three facts that cost real time to discover — don't rediscover them:**
+
+- **The AppImage is pinned to v3.0.2, not the newer v3.0.3, on purpose.** v3.0.3 is
+  built against Ubuntu 24.04 libraries (`GLIBC_2.38`/`GLIBCXX_3.4.32`) and dies at the
+  dynamic linker on this station's Ubuntu 22.04. **CI cannot catch this** — its runner
+  has newer glibc than the station — which is why `vendor.host_can_run()` checks the
+  *running* host and `doctor.py`/`preflight()` surface it.
+- **JS8's TCP API port is 2442, not 2242.** The fork's own `docs/API.md` says 2242 in
+  both its prose and its telnet example; the source shows that is the *UDP* port.
+- **JS8 Normal is FT8's waveform.** Same 79 symbols, same 6.25 baud / 6.25 Hz spacing,
+  same Costas array, same 0/36/72 sync positions. It differs in payload encoding
+  (Varicode free text), in having **no Gray coding**, and in using plain
+  phase-continuous FSK rather than FT8's Gaussian-shaped GFSK.
+
+**Safety note specific to the wrapper:** while JS8Call owns the CAT port, SeeQ's unkey
+watchdog can only *ask* it to halt (`RIG.TX_HALT`) — a request to the very process being
+guarded. That is a genuinely weaker guarantee than FT8's detached
+`sleep N; rigctl T 0`, and it is documented in `bin/modes/js8/watchdog.py`, on the
+dashboard panel, and in the roadmap. **Going native removes this problem** — once SeeQ
+owns the modem, JS8 gets the same hardware-independent unkey guarantee FT8 has.
+
 ## Operating
 
 ```bash
@@ -122,6 +174,8 @@ bin/seeq stop                            # Force PTT release + shutdown
 - **[MISSION.md](MISSION.md)** — original project goals and status
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — Phase 1–5 tasks, model tiers, acceptance criteria (build *process*)
 - **[docs/MODES-ROADMAP.md](docs/MODES-ROADMAP.md)** — FT8 → JS8 → email-over-radio mode roadmap and mode-switching architecture (build *capability*)
+- **[docs/js8/PROTOCOL.md](docs/js8/PROTOCOL.md)** — JS8 wire spec (see the JS8 section above)
+- **[docs/js8/NATIVE-PLAN.md](docs/js8/NATIVE-PLAN.md)** — phased plan for the native JS8 build
 - **[docs/COST.md](docs/COST.md)** — runtime cost ($0), dev cost breakdown, tinkering options
 - **[agents/PREPROMPT.md](agents/PREPROMPT.md)** — every agent reads this first: rig facts, safety chain, skill pointers
 
