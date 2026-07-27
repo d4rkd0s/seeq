@@ -2382,6 +2382,20 @@ function modeLabelFor(activeMode, registry){
 function shouldShowChooser(activeMode, forced, inflight){
  return !activeMode || !!forced || !!inflight;
 }
+/* What a /mode/state poll may do to the chooser's flags -> [forced, inflight].
+
+   data/mode-switch.json is not cleared when a changeover finishes, so every
+   poll from then on keeps reporting stage 'done'. Clearing `forced` on any
+   'done' therefore broke the header's switch button outright: the click set
+   the flag and the next poll (1s later, or the immediate one the click
+   triggers) wiped it again, so the button looked alive and did nothing. A
+   completed switch may only close the chooser if THIS page started it, which
+   is what `inflight` tracks. Pure, so the rules can be tested directly. */
+function chooserFlagsAfterPoll(stage, forced, inflight){
+ if(stage==='done'||stage==='already_active') return inflight?[false,false]:[forced,false];
+ if(stage==='error') return [forced,false];       // keep it open so the error is readable
+ return [forced,inflight];
+}
 let MODE_CHOOSER_FORCED=false, MODE_SWITCH_INFLIGHT=false, chooserWasVisible=false;
 function openModeChooser(){ MODE_CHOOSER_FORCED=true; pollModeState(); }
 function closeModeChooser(){ MODE_CHOOSER_FORCED=false; MODE_SWITCH_INFLIGHT=false; pollModeState(); }
@@ -2393,9 +2407,8 @@ async function pollModeState(){
  if(s.switch){
   statusEl.style.display='block';
   statusEl.textContent=modeStageLabel(s.switch);
-  const stage=s.switch.stage;
-  if(stage==='done'||stage==='already_active'){ MODE_SWITCH_INFLIGHT=false; MODE_CHOOSER_FORCED=false; }
-  else if(stage==='error'){ MODE_SWITCH_INFLIGHT=false; }   // keep it open so the error is readable
+  [MODE_CHOOSER_FORCED,MODE_SWITCH_INFLIGHT]=
+    chooserFlagsAfterPoll(s.switch.stage,MODE_CHOOSER_FORCED,MODE_SWITCH_INFLIGHT);
  }
  const show=shouldShowChooser(s.active_mode,MODE_CHOOSER_FORCED,MODE_SWITCH_INFLIGHT);
  /* Re-read the registry whenever the chooser appears. It used to be fetched

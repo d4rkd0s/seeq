@@ -1498,6 +1498,60 @@ class TestShouldShowChooser(unittest.TestCase):
                                                    [None, True, False]]), [True, True])
 
 
+def extract_chooser_flags_js():
+    page = _dashboard_module().PAGE
+    start = page.index("function chooserFlagsAfterPoll(stage, forced, inflight){")
+    end = page.index("\n}", start) + 2
+    return page[start:end]
+
+
+def run_chooser_flags(cases):
+    script = extract_chooser_flags_js() + (
+        "\nconst __c = %s;"
+        "\nprocess.stdout.write(JSON.stringify("
+        "__c.map(a => chooserFlagsAfterPoll(a[0],a[1],a[2]))));"
+    ) % json.dumps(cases)
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        raise AssertionError(f"node failed: {r.stderr.strip()}")
+    return json.loads(r.stdout)
+
+
+class TestChooserFlagsAfterPoll(unittest.TestCase):
+    """What a /mode/state poll is allowed to do to the chooser's flags.
+
+    data/mode-switch.json persists after a changeover completes, so every poll
+    keeps seeing stage 'done' indefinitely. The first version cleared the
+    user-opened flag on any 'done', which meant clicking the header's switch
+    button set the flag and the very next poll wiped it -- the button was
+    visible and did nothing. A completed switch may only close the chooser if
+    THIS page actually started it.
+    """
+
+    def test_stale_done_does_not_slam_the_chooser_shut(self):
+        # forced=true, inflight=false: the user just opened it by hand and the
+        # 'done' on disk is left over from an earlier switch.
+        self.assertEqual(run_chooser_flags([["done", True, False]]), [[True, False]])
+
+    def test_our_own_completed_switch_closes_it(self):
+        self.assertEqual(run_chooser_flags([["done", True, True]]), [[False, False]])
+
+    def test_already_active_behaves_like_done(self):
+        self.assertEqual(run_chooser_flags([["already_active", True, True]]), [[False, False]])
+        self.assertEqual(run_chooser_flags([["already_active", True, False]]), [[True, False]])
+
+    def test_error_stops_inflight_but_keeps_the_chooser_open(self):
+        # The operator needs to read the failure and decide what to do.
+        self.assertEqual(run_chooser_flags([["error", True, True]]), [[True, False]])
+
+    def test_in_progress_stages_change_nothing(self):
+        for stage in ("stopping", "verifying", "sanity_check", "starting"):
+            self.assertEqual(run_chooser_flags([[stage, True, True]]), [[True, True]], stage)
+
+    def test_null_stage_changes_nothing(self):
+        self.assertEqual(run_chooser_flags([[None, True, False]]), [[True, False]])
+
+
 def extract_mode_visibility_js():
     """The real applyModeVisibility() source, verbatim from PAGE."""
     page = _dashboard_module().PAGE
