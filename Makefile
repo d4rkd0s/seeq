@@ -21,6 +21,7 @@ test:
 	python3 tools/test_js8_vendor.py
 	python3 tools/test_mode_js8_pipeline.py
 	python3 tools/test_mode_js8_engine.py
+	python3 tools/test_js8_frame.py
 	python3 tools/test_bandpulse.py
 	python3 tools/test_band_plan.py
 	python3 tools/test_astro.py
