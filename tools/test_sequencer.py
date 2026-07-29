@@ -500,6 +500,154 @@ class TestDxPriorityBump(unittest.TestCase):
         self.assertIsNone(qso.dx_priority_bump(cqs, True, logged, {}))
 
 
+class TestCallsignNovelty(unittest.TestCase):
+    """novelty_rank(call, worked_alltime) — 0 for a callsign never worked,
+    1 for one already in the log all-time. Used only as a TIE-BREAKER
+    inside candidate_tier's tiers, never across them: the DX priority
+    (new country > long-distance DX > neighbour DX > home) still decides
+    first, and novelty only orders candidates that tier has already put on
+    equal footing. Fails OPEN to 0 (treat as new) when the worked set is
+    unavailable, so a missing/unreadable ADIF degrades to the previous
+    pure-SNR-within-tier behaviour rather than deprioritizing everyone."""
+
+    def test_never_worked_call_ranks_ahead(self):
+        self.assertEqual(qso.novelty_rank("W1AW", {"K5XYZ"}), 0)
+
+    def test_already_worked_call_ranks_behind(self):
+        self.assertEqual(qso.novelty_rank("K5XYZ", {"K5XYZ"}), 1)
+
+    def test_comparison_is_case_insensitive(self):
+        self.assertEqual(qso.novelty_rank("k5xyz", {"K5XYZ"}), 1)
+        self.assertEqual(qso.novelty_rank("K5XYZ", {"k5xyz"}), 1)
+
+    def test_none_worked_set_fails_open_to_new(self):
+        self.assertEqual(qso.novelty_rank("K5XYZ", None), 0)
+
+    def test_empty_worked_set_treats_everything_as_new(self):
+        self.assertEqual(qso.novelty_rank("K5XYZ", set()), 0)
+
+
+class TestEffectiveTier(unittest.TestCase):
+    """effective_tier(call, logged_countries, home_call, worked_alltime) —
+    candidate_tier, then ONE tier of demotion (floored at the home tier, 3)
+    if the callsign has already been worked all-time. This is the structural
+    half of the worked-call cost: it is what lets an already-worked
+    neighbour-DX station fall level with never-worked home-country stations
+    instead of permanently outranking them."""
+
+    def test_never_worked_call_keeps_its_tier(self):
+        self.assertEqual(
+            qso.effective_tier("VE3ABC", {"United States", "Canada"}, "W1AW", set()), 2)
+
+    def test_worked_neighbour_dx_drops_to_the_home_tier(self):
+        self.assertEqual(
+            qso.effective_tier("VE3ABC", {"United States", "Canada"}, "W1AW",
+                               {"VE3ABC"}), 3)
+
+    def test_worked_long_distance_dx_drops_to_the_neighbour_tier(self):
+        self.assertEqual(
+            qso.effective_tier("DL1ABC", {"United States", "Germany"}, "W1AW",
+                               {"DL1ABC"}), 2)
+
+    def test_worked_home_country_call_is_floored_not_pushed_past_3(self):
+        self.assertEqual(
+            qso.effective_tier("W1AW", {"United States"}, "K5XYZ", {"W1AW"}), 3)
+
+    def test_no_worked_set_means_no_demotion(self):
+        self.assertEqual(
+            qso.effective_tier("VE3ABC", {"United States", "Canada"}, "W1AW", None), 2)
+
+
+class TestWorkedCallCost(unittest.TestCase):
+    """The combined worked-call cost, through rank_cqs(..., worked_alltime=).
+
+    Two mechanisms working together, as agreed: the dominant one is the
+    one-tier demotion (effective_tier); the finer one is a dB penalty
+    (NOVELTY_PENALTY_DB) that orders candidates once demotion has put them in
+    the same tier. The dB penalty is deliberately a WEIGHT, not a veto -- a
+    sufficiently stronger already-worked station still wins."""
+
+    def cq(self, call, snr):
+        return ({"snr": snr}, call, "")
+
+    def test_worked_neighbour_dx_no_longer_beats_a_new_home_station(self):
+        """The VE2OPC case from the log review -- the reason for this change.
+
+        Before: a Canadian worked four times, at -16 dB, outranked every
+        never-worked US station because Canada is tier 2 and the US is tier 3.
+        """
+        cqs = [self.cq("VE2OLD", -16), self.cq("W1NEW", -7)]
+        ranked = qso.rank_cqs(cqs, False, {"United States", "Canada"}, {},
+                              home_call="K5XYZ", worked_alltime={"VE2OLD"})
+        self.assertEqual([c for _, c, _ in ranked], ["W1NEW", "VE2OLD"])
+
+    def test_a_never_worked_neighbour_keeps_full_dx_priority(self):
+        """DX priority itself is NOT weakened -- only re-working is penalised."""
+        cqs = [self.cq("VE3NEW", -20), self.cq("W1NEW", -7)]
+        ranked = qso.rank_cqs(cqs, False, {"United States", "Canada"}, {},
+                              home_call="K5XYZ", worked_alltime=set())
+        self.assertEqual([c for _, c, _ in ranked], ["VE3NEW", "W1NEW"])
+
+    def test_new_country_still_outranks_everything(self):
+        cqs = [self.cq("W1NEW", -3), self.cq("DL1ABC", -22)]
+        ranked = qso.rank_cqs(cqs, False, {"United States"}, {},
+                              home_call="K5XYZ", worked_alltime=set())
+        self.assertEqual([c for _, c, _ in ranked], ["DL1ABC", "W1NEW"])
+
+    def test_db_penalty_flips_a_marginally_stronger_worked_call(self):
+        # Same tier. W1OLD is 3 dB stronger but already worked; the 4 dB
+        # penalty is enough to put the fresh station first.
+        cqs = [self.cq("W1OLD", -10), self.cq("W1NEW", -13)]
+        ranked = qso.rank_cqs(cqs, False, {"United States"}, {},
+                              home_call="K5XYZ", worked_alltime={"W1OLD"})
+        self.assertEqual([c for _, c, _ in ranked], ["W1NEW", "W1OLD"])
+
+    def test_db_penalty_is_a_weight_not_a_veto(self):
+        """A clearly stronger worked station still wins -- this is what makes
+        it a weighted cost rather than an absolute novelty priority."""
+        cqs = [self.cq("W1OLD", -2), self.cq("W1NEW", -18)]
+        ranked = qso.rank_cqs(cqs, False, {"United States"}, {},
+                              home_call="K5XYZ", worked_alltime={"W1OLD"})
+        self.assertEqual([c for _, c, _ in ranked], ["W1OLD", "W1NEW"])
+
+    def test_penalty_size_is_configurable(self):
+        cqs = [self.cq("W1OLD", -2), self.cq("W1NEW", -18)]
+        ranked = qso.rank_cqs(cqs, False, {"United States"}, {},
+                              home_call="K5XYZ", worked_alltime={"W1OLD"},
+                              novelty_penalty_db=30)
+        self.assertEqual([c for _, c, _ in ranked], ["W1NEW", "W1OLD"])
+
+    def test_zero_penalty_leaves_only_the_tier_demotion(self):
+        cqs = [self.cq("W1OLD", -10), self.cq("W1NEW", -13)]
+        ranked = qso.rank_cqs(cqs, False, {"United States"}, {},
+                              home_call="K5XYZ", worked_alltime={"W1OLD"},
+                              novelty_penalty_db=0)
+        self.assertEqual([c for _, c, _ in ranked], ["W1OLD", "W1NEW"])
+
+    def test_pileup_penalty_and_novelty_penalty_both_apply(self):
+        # W1OLD -6 dB, worked (-4), 1 competitor (-6) => -16 effective.
+        cqs = [self.cq("W1OLD", -6), self.cq("W1NEW", -14)]
+        ranked = qso.rank_cqs(cqs, False, {"United States"}, {"W1OLD": 6},
+                              home_call="K5XYZ", worked_alltime={"W1OLD"})
+        self.assertEqual([c for _, c, _ in ranked], ["W1NEW", "W1OLD"])
+
+    def test_omitting_worked_alltime_preserves_previous_ranking_exactly(self):
+        """Backwards compatibility: the old signature must behave as before."""
+        cqs = [self.cq("K5XYZ", -3), self.cq("W1AW", -18)]
+        old = qso.rank_cqs(cqs, False, {"United States"}, {}, home_call="N0AAA")
+        self.assertEqual([c for _, c, _ in old], ["K5XYZ", "W1AW"])
+
+    def test_dx_mode_penalises_worked_calls_within_its_groups(self):
+        cqs = [self.cq("F5OLD", -10), self.cq("F9NEW", -13)]
+        ranked = qso.rank_cqs(cqs, True, {"France"}, {}, worked_alltime={"F5OLD"})
+        self.assertEqual([c for _, c, _ in ranked], ["F9NEW", "F5OLD"])
+
+    def test_dx_mode_hard_new_country_priority_is_untouched(self):
+        cqs = [self.cq("W1NEW", -3), self.cq("DL1ABC", -22)]
+        ranked = qso.rank_cqs(cqs, True, {"United States"}, {}, worked_alltime=set())
+        self.assertEqual([c for _, c, _ in ranked], ["DL1ABC", "W1NEW"])
+
+
 class TestAllTimeWorkedCalls(unittest.TestCase):
     def test_returns_all_calls_regardless_of_date(self):
         with tempfile.TemporaryDirectory() as d:

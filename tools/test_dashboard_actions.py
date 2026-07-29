@@ -123,15 +123,21 @@ class TestValidateModeSwitch(unittest.TestCase):
         self.assertEqual(mode, "ft8")
         self.assertIsNone(err)
 
-    def test_js8_ok(self):
+    def test_js8_rejected_while_in_development(self):
+        """Hiding the button is not enough -- the endpoint itself must refuse.
+
+        The chooser stops offering JS8 when its status is in-development, but
+        /action/mode/switch is reachable directly (curl, a stale tab, a
+        bookmarked POST). Since activating JS8 would launch the unverified
+        wrapper, the server has to be the thing that says no.
+        """
         mode, err = dashboard._validate_mode_switch({"mode": "js8"})
-        self.assertEqual(mode, "js8")
-        self.assertIsNone(err)
+        self.assertIsNone(mode)
+        self.assertIn("unknown mode", err)
 
     def test_unknown_mode_rejected(self):
-        # "ft4" is still MODE_INFO-only (status: planned) with no
-        # bin/modes/ft4/ package -- switching to it must be refused, not
-        # attempted. js8 used to be the example here until M1.2 made it real.
+        # "ft4" is MODE_INFO-only (status: planned) with no bin/modes/ft4/
+        # package -- switching to it must be refused, not attempted.
         mode, err = dashboard._validate_mode_switch({"mode": "ft4"})
         self.assertIsNone(mode)
         self.assertIn("unknown mode", err)

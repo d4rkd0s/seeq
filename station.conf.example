@@ -50,6 +50,13 @@ DUPE_RULE=day                   # skip calls already worked today (UTC)
 
 # Hunting etiquette (ZL2IFB FT8 Operating Guide)
 SNR_FLOOR=-16                   # don't call CQs weaker than this — QRP reciprocity
+NOVELTY_PENALTY_DB=4            # dB charged against a callsign already in the log all-time, so a
+                                # loud regular doesn't get chased ahead of a station you've never
+                                # worked. Already-worked calls also drop one priority tier; this is
+                                # the finer half of that cost. Same units as the 6 dB/competitor
+                                # pileup penalty. Raise to favour new calls harder; 0 leaves only
+                                # the tier demotion. DUPE_RULE above still blocks same-day repeats
+                                # outright — this governs which candidate gets picked, across days.
 CQ_MODIFIERS_OK=NA,USA,US,POTA,SOTA,IOTA,QRP   # directed-CQ modifiers we answer (plain CQ always OK; contest always skipped; CQ DX skipped unless DX Mode is armed for that session — see dashboard "DX only" toggle; add your state/region)
 
 # Dashboard

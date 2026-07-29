@@ -1244,11 +1244,32 @@ class TestModeCardHtml(unittest.TestCase):
         self.assertNotIn("coming soon", html)
         self.assertNotIn("planned", html)  # not even in the card's class list
 
+    IN_DEVELOPMENT = {"label": "JS8", "status": "in-development",
+                      "description": "Native JS8 modem, built in SeeQ.",
+                      "protocol_url": "http://js8call.com/"}
+
     def test_planned_mode_has_no_select_button(self):
         html = run_mode_card_html("js8", self.PLANNED)
         self.assertNotIn("data-mode=", html)
         self.assertIn("coming soon", html)
         self.assertIn("modeCardBadge", html)
+
+    def test_in_development_mode_is_labelled_in_development(self):
+        html = run_mode_card_html("js8", self.IN_DEVELOPMENT)
+        self.assertIn("In Development", html)
+
+    def test_in_development_mode_is_not_selectable(self):
+        """Not switchable until Logan has exercised it and released v4.0.0."""
+        html = run_mode_card_html("js8", self.IN_DEVELOPMENT)
+        self.assertNotIn("data-mode=", html)
+        self.assertNotIn("Select JS8", html)
+
+    def test_in_development_is_distinguishable_from_planned(self):
+        """"Nearly there" must not read the same as "not started"."""
+        dev = run_mode_card_html("js8", self.IN_DEVELOPMENT)
+        planned = run_mode_card_html("js8", self.PLANNED)
+        self.assertNotIn("coming soon", dev)
+        self.assertNotIn("In Development", planned)
 
     def test_description_and_protocol_link_present(self):
         html = run_mode_card_html("ft8", self.AVAILABLE)

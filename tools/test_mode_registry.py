@@ -34,22 +34,32 @@ class TestModeInfo(unittest.TestCase):
     def test_ft8_is_available(self):
         self.assertEqual(mode_registry.MODE_INFO["ft8"]["status"], "available")
 
-    def test_planned_modes_are_not_functional(self):
-        # Planned entries describe modes for planning purposes only -- they
-        # must NOT also appear in MODES, or the boot chooser/mode-switch
-        # machinery would try to actually load a pipeline that doesn't exist.
+    def test_only_available_modes_are_functional(self):
+        # Anything not "available" must NOT appear in MODES, or the boot
+        # chooser / mode-switch machinery would try to load a pipeline the
+        # operator has not cleared for use. Covers "planned" (not built) and
+        # "in-development" (built but unreleased and unverified on air).
         for name, info in mode_registry.MODE_INFO.items():
-            if info["status"] == "planned":
-                self.assertNotIn(name, mode_registry.MODES, name)
+            if info["status"] != "available":
+                self.assertNotIn(name, mode_registry.MODES,
+                                 f"{name} is {info['status']} but still switchable")
 
     def test_every_entry_has_description_and_protocol_url(self):
         for name, info in mode_registry.MODE_INFO.items():
             self.assertTrue(info.get("description"), name)
             self.assertTrue(info.get("protocol_url", "").startswith("http"), name)
 
-    def test_status_is_available_or_planned(self):
+    def test_status_is_a_known_value(self):
         for name, info in mode_registry.MODE_INFO.items():
-            self.assertIn(info["status"], ("available", "planned"), name)
+            self.assertIn(info["status"],
+                          ("available", "in-development", "planned"), name)
+
+    def test_js8_is_in_development_not_available(self):
+        """JS8 is mid-rewrite as a native mode: the wrapper on disk drives a
+        third-party app, is unverified against the protocol, and has never
+        been exercised on air. It ships at v4.0.0 after the control operator
+        has personally cleared it -- not before. See CLAUDE.md's JS8 section."""
+        self.assertEqual(mode_registry.MODE_INFO["js8"]["status"], "in-development")
 
 
 class TestLoadMode(unittest.TestCase):
@@ -63,12 +73,23 @@ class TestLoadMode(unittest.TestCase):
         for fn in ("chase_start", "chase_stop"):
             self.assertTrue(callable(getattr(engine, fn)), fn)
 
-    def test_js8_is_registered(self):
-        # Was asserted to raise UnknownModeError until M1.2 built the package.
-        self.assertIn("js8", mode_registry.MODES)
+    def test_js8_is_not_switchable_while_in_development(self):
+        """Registered in MODE_INFO (so the chooser can show it), absent from
+        MODES (so nothing can activate it). Flip both together at v4.0.0."""
+        self.assertNotIn("js8", mode_registry.MODES)
 
-    def test_load_js8_returns_pipeline_and_engine(self):
-        pipeline, engine = mode_registry.load_mode("js8")
+    def test_loading_js8_raises_rather_than_starting_it(self):
+        with self.assertRaises(mode_registry.UnknownModeError):
+            mode_registry.load_mode("js8")
+
+    def test_the_js8_package_itself_still_satisfies_the_contract(self):
+        """The wrapper stays on disk as the P1b cross-check oracle, so its
+        five-function pipeline contract must keep working even though the mode
+        is not switchable -- this is what makes re-enabling it a one-line
+        change rather than a re-integration."""
+        import importlib
+        pipeline = importlib.import_module("modes.js8.pipeline")
+        engine = importlib.import_module("modes.js8.engine")
         for fn in ("start", "stop", "is_running", "sanity_check", "preflight"):
             self.assertTrue(callable(getattr(pipeline, fn)), fn)
         for fn in ("chase_start", "chase_stop"):
@@ -77,7 +98,10 @@ class TestLoadMode(unittest.TestCase):
     def test_js8_engine_exposes_its_own_send_path(self):
         # JS8 is conversational: the dashboard composes free text rather than
         # running FT8's fixed exchange, so send/halt are the real entry points.
-        _pipeline, engine = mode_registry.load_mode("js8")
+        # Imported directly, not via load_mode: js8 is out of MODES while it is
+        # in development (see test_js8_is_not_switchable_while_in_development).
+        import importlib
+        engine = importlib.import_module("modes.js8.engine")
         for fn in ("send", "halt", "set_speed"):
             self.assertTrue(callable(getattr(engine, fn)), fn)
 

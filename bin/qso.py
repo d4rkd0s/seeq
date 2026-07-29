@@ -44,6 +44,12 @@ MYCALL, MYGRID = _C.get("MYCALL", "N0CALL"), _C.get("MYGRID", "AA00")
 BAND    = _C.get("BAND", "20m")
 MAX_REPEAT = int(_C.get("MAX_REPEAT", 6))    # hard cap: no more than 6 similar transmits
 STATE_RETRY = int(_C.get("STATE_RETRY", 5))  # per-state retries before giving up on a target (<= MAX_REPEAT)
+# dB charged against a callsign already in the log all-time, so a familiar
+# regular does not get chased ahead of a genuinely new station of similar
+# strength. The finer half of the worked-call cost -- effective_tier's one-tier
+# demotion is the structural half. Same units as the 6 dB/competitor pileup
+# penalty. 0 disables the dB half and leaves only the demotion.
+NOVELTY_PENALTY_DB = float(_C.get("NOVELTY_PENALTY_DB", 4))
 WATCHDOG_S = float(_C.get("WATCHDOG_S", 14))
 SNR_FLOOR = int(_C.get("SNR_FLOOR", -16))    # don't call CQs weaker than this (dB) — reciprocity at 5-10 W
 CQ_MODIFIERS_OK = {m.strip().upper() for m in
@@ -377,7 +383,46 @@ def candidate_tier(call, logged_countries, home_call):
         return 2 if dxcc.is_neighbor_call(call, home_call) else 1
     return 3
 
-def rank_cqs(cqs, dx_mode, logged_countries, pileup_penalty, home_call=None):
+def novelty_rank(call, worked_alltime):
+    """0 if this callsign has never been worked, 1 if it already has (all-time).
+
+    A TIE-BREAKER for rank_cqs, applied strictly WITHIN a tier -- see
+    rank_cqs's docstring for why it deliberately does not cross tiers.
+
+    Fails OPEN (returns 0, "treat as new") when `worked_alltime` is None: an
+    unreadable or missing ADIF must degrade to the previous pure-SNR-within-
+    tier ordering, not silently deprioritize every candidate at once.
+    """
+    if not worked_alltime:
+        return 0
+    return 1 if call.upper() in {c.upper() for c in worked_alltime} else 0
+
+
+HOME_TIER = 3  # candidate_tier's worst tier; the demotion floor
+
+
+def effective_tier(call, logged_countries, home_call, worked_alltime):
+    """candidate_tier, demoted ONE tier (floored at HOME_TIER) if already worked.
+
+    The structural half of the worked-call cost. Without it the tiers rank
+    purely by COUNTRY novelty, so a station in an already-worked DX country
+    outranks every home-country station forever, however many times it has
+    already been logged -- which is exactly the pattern the 2026-07-29 log
+    review found (a neighbour-country regular worked four times, at -16 dB,
+    beating never-worked home stations at -7 dB).
+
+    Demotion is one tier, not to the bottom: a worked long-distance DX station
+    lands with the neighbour DX, and a worked neighbour lands with home. DX
+    priority for stations NOT yet worked is untouched.
+    """
+    tier = candidate_tier(call, logged_countries, home_call)
+    if novelty_rank(call, worked_alltime):
+        return min(tier + 1, HOME_TIER)
+    return tier
+
+
+def rank_cqs(cqs, dx_mode, logged_countries, pileup_penalty, home_call=None,
+             worked_alltime=None, novelty_penalty_db=None):
     """cqs: list of (decode_dict, call, grid) tuples. pileup_penalty: dict
     call -> dB penalty (6 * competitor count). Returns a NEW sorted list,
     best-first. dx_mode False: DX-aware 4-tier priority via candidate_tier
@@ -388,12 +433,45 @@ def rank_cqs(cqs, dx_mode, logged_countries, pileup_penalty, home_call=None):
     priority -- any candidate
     whose country is not in `logged_countries` ranks ahead of any candidate
     whose country already is, regardless of signal strength; SNR-minus-
-    pileup only orders within each of those two groups."""
+    pileup only orders within each of those two groups.
+
+    `worked_alltime`: optional set of every callsign ever logged. When given,
+    an already-worked callsign carries a cost made of TWO parts:
+
+      1. one tier of demotion (effective_tier) -- the dominant, structural
+         part, and the only part that can move a candidate past a tier
+         boundary; and
+      2. `novelty_penalty_db` dB subtracted from its score -- the finer part,
+         which orders candidates that demotion has landed in the same tier.
+
+    Part 2 is a WEIGHT, not a veto: a clearly stronger already-worked station
+    still wins, exactly as a clearly stronger station wins through the pileup
+    penalty. A binary never-worked-first sort key was considered and rejected
+    -- as a higher-priority key it would have made the dB term unreachable.
+
+    The tiers rank by COUNTRY novelty, which says nothing about whether a
+    given STATION is new; parts 1 and 2 are what stop a familiar regular in a
+    worked country from being chased ahead of genuinely new stations.
+
+    Omitting `worked_alltime` reproduces the previous ranking exactly."""
+    if novelty_penalty_db is None:
+        novelty_penalty_db = NOVELTY_PENALTY_DB
+    normalized = {c.upper() for c in worked_alltime} if worked_alltime else None
+
+    def score(x):
+        penalty = novelty_penalty_db * novelty_rank(x[1], normalized)
+        return _cq_score(x, pileup_penalty) + penalty
+
     if dx_mode:
+        # DX Mode's hard new-country-first grouping is untouched: an
+        # already-worked call can never be in a new country, so it is always
+        # in group 1 already and needs no demotion -- only the dB penalty,
+        # which orders it behind fresh stations inside that group.
         return sorted(cqs, key=lambda x: (0 if dxcc.is_new_country(x[1], logged_countries) else 1,
-                                           _cq_score(x, pileup_penalty)))
-    return sorted(cqs, key=lambda x: (candidate_tier(x[1], logged_countries, home_call),
-                                       _cq_score(x, pileup_penalty)))
+                                           score(x)))
+    return sorted(cqs, key=lambda x: (effective_tier(x[1], logged_countries, home_call,
+                                                      normalized),
+                                       score(x)))
 
 def dx_priority_bump(cqs, dx_mode, logged_countries, pileup_penalty):
     """Detects whether DX Mode's hard-priority reorder (rank_cqs) actually
@@ -723,11 +801,19 @@ def main():
         pileup_penalty = {call: 6 * competitors(call) for _, call, _ in cqs}
         # Tracked regardless of dx_mode now -- non-DX-mode ranking (below)
         # needs worked-country history too, not just DX Mode's hard filter.
-        logged = dxcc.logged_countries(all_time_worked_calls())
+        # One ADIF read serves both: the country set for tier ranking and the
+        # raw callsign set for the within-tier novelty tie-break.
+        worked_ever = all_time_worked_calls()
+        logged = dxcc.logged_countries(worked_ever)
         bump = dx_priority_bump(cqs, dx_mode, logged, pileup_penalty)
         if bump:
             ev(f"DX Mode: prioritizing {bump[0]} (new country) over {bump[1]} stronger candidate(s)")
-        cqs = rank_cqs(cqs, dx_mode, logged, pileup_penalty, home_call=MYCALL)
+        plain_top = rank_cqs(cqs, dx_mode, logged, pileup_penalty, home_call=MYCALL)
+        cqs = rank_cqs(cqs, dx_mode, logged, pileup_penalty, home_call=MYCALL,
+                       worked_alltime=worked_ever)
+        if plain_top and cqs[0][1] != plain_top[0][1]:
+            ev(f"worked-call cost: preferring {cqs[0][1]} (never worked) over "
+               f"{plain_top[0][1]} (already logged)")
         requested = _read_target_request()
         d, call, grid = select_target(cqs, requested)
         their_parity = slot_parity_of(d["slot"])

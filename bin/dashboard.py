@@ -375,10 +375,14 @@ PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>SeeQ — __MYC
  #modeChooserButtons{display:flex;flex-direction:column;gap:12px}
  .modeCard{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px}
  .modeCard.planned{opacity:.62}
+ /* in-development sits visually between available and planned: dimmed less
+    than planned, with a live blue accent, so "nearly there" reads correctly */
+ .modeCard.indev{opacity:.88;border-color:#1f6feb}
  .modeCardHead{display:flex;align-items:center;gap:8px;margin-bottom:6px}
  .modeCardLabel{font-size:16px;font-weight:700;color:#c9d1d9}
  .modeCardBadge{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#e3b341;
   border:1px solid #e3b341;border-radius:10px;padding:1px 7px}
+ .modeCardBadge.dev{color:#58a6ff;border-color:#58a6ff}
  .modeCardDesc{font-size:12.5px;color:#8b949e;line-height:1.5;margin-bottom:10px}
  .modeCardFoot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
  .modeCardLink{font-size:11.5px;color:#58a6ff;text-decoration:none}
@@ -2346,11 +2350,17 @@ async function startModeSwitch(mode){
 }
 function modeCardHtml(key, m){
  const available=m.status==='available';
- const badge=available?'':'<span class=modeCardBadge>planned</span>';
+ /* in-development: built, close, but not cleared for use -- must read as
+    "nearly there" rather than "not started", and must not be selectable. */
+ const inDev=m.status==='in-development';
+ const badge=available?''
+  :(inDev?'<span class="modeCardBadge dev">In Development</span>'
+         :'<span class=modeCardBadge>planned</span>');
  const action=available
   ?`<button class=actionbtn data-mode="${escapeHtml(key)}">Select ${escapeHtml(m.label)}</button>`
-  :'<span class=modeCardSoon>coming soon</span>';
- return `<div class="modeCard${available?'':' planned'}">`+
+  :(inDev?'<span class=modeCardSoon>not yet selectable</span>'
+         :'<span class=modeCardSoon>coming soon</span>');
+ return `<div class="modeCard${available?'':(inDev?' indev':' planned')}">`+
   `<div class=modeCardHead><span class=modeCardLabel>${escapeHtml(m.label)}</span>${badge}</div>`+
   `<div class=modeCardDesc>${escapeHtml(m.description||'')}</div>`+
   `<div class=modeCardFoot>`+
@@ -2360,8 +2370,10 @@ function modeCardHtml(key, m){
 }
 function renderModeChooserButtons(registry){
  const box=document.getElementById('modeChooserButtons');
+ /* available first, then in-development (closest to ready), then planned */
+ const rank=s=>s==='available'?0:(s==='in-development'?1:2);
  const keys=Object.keys(registry).sort((a,b)=>
-  (registry[a].status==='available'?0:1)-(registry[b].status==='available'?0:1));
+  rank(registry[a].status)-rank(registry[b].status));
  box.innerHTML=keys.map(k=>modeCardHtml(k,registry[k])).join('');
  box.querySelectorAll('button[data-mode]').forEach(btn=>{
   btn.addEventListener('click',()=>startModeSwitch(btn.dataset.mode));

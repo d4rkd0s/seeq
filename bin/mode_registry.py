@@ -12,18 +12,33 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 MODES = {
     "ft8": {"label": "FT8", "pipeline": "modes.ft8.pipeline", "engine": "modes.ft8.engine"},
-    "js8": {"label": "JS8", "pipeline": "modes.js8.pipeline", "engine": "modes.js8.engine"},
+    # "js8" is deliberately ABSENT. The bin/modes/js8/ package exists and its
+    # pipeline/engine satisfy the contract, but the mode is mid-rewrite: what
+    # is on disk drives a third-party app, has never been verified against the
+    # protocol, and has never transmitted. Listing it here is what makes a mode
+    # switchable, so it stays out until the control operator has exercised the
+    # native implementation and cut v4.0.0 -- then this one line comes back
+    # alongside flipping MODE_INFO's status. See CLAUDE.md's JS8 section.
 }
 
 # MODE_INFO: display-only metadata for the dashboard's boot/mode chooser.
-# Unlike MODES (functional, switchable, ft8-only for now), this can list
-# modes that aren't built yet -- "status": "planned" -- so the chooser can
-# explain SeeQ's mode roadmap (see docs/MODES-ROADMAP.md: FT8 -> JS8 ->
-# email-over-radio) without pretending they're actually switchable. A
-# planned entry must never also appear in MODES (see
-# tools/test_mode_registry.py) -- adding real support for one means moving
-# it into MODES alongside its own bin/modes/<name>/ package, not just
-# flipping this status flag.
+# Unlike MODES (functional, switchable, ft8-only for now), this can list modes
+# that aren't usable yet, so the chooser can explain SeeQ's mode roadmap (see
+# docs/MODES-ROADMAP.md: FT8 -> JS8 -> email-over-radio) without pretending
+# they're switchable. Three statuses:
+#
+#   "available"      -- switchable now; must also be in MODES.
+#   "in-development" -- being built right now; code may exist on disk but is
+#                       unreleased and unverified on air. Shown as
+#                       "In Development" so it's clear it's close, NOT as
+#                       "coming soon".
+#   "planned"        -- roadmap only, nothing built.
+#
+# Anything that is not "available" must NOT appear in MODES (enforced by
+# tools/test_mode_registry.py) -- otherwise the chooser and mode-switch
+# machinery would happily activate a mode the operator hasn't cleared.
+# Promoting a mode means adding it to MODES *and* flipping this flag, never
+# just one of the two.
 MODE_INFO = {
     "ft8": {
         "label": "FT8",
@@ -44,12 +59,14 @@ MODE_INFO = {
     },
     "js8": {
         "label": "JS8",
-        "status": "available",
+        "status": "in-development",
         "description": ("FT8-derived mode that adds free-text keyboard-to-keyboard "
                          "messaging and store-and-forward relay on top of structured "
-                         "calling -- a real conversation, not just an exchange. Driven "
-                         "through JS8Call-improved's TCP API; transmit is manual and "
-                         "confirmed per message, never automatic."),
+                         "calling -- a real conversation, not just an exchange. Being "
+                         "built as a fully native SeeQ mode: our own protocol "
+                         "implementation, tone generation, decoder and UI, no external "
+                         "application. The encoder is done and bit-checked against the "
+                         "spec; the decoder and on-air testing are still ahead."),
         "protocol_url": "https://github.com/JS8Call-improved/JS8Call-improved",
     },
     "winlink": {

@@ -138,6 +138,16 @@ stage of our own modem verifiable bit-exactly, offline.
    exercised the mode on the live dashboard and said go. Commits land on `master` as
    work progresses; the release checklist does not run before that approval.
 
+**JS8 is gated off in two places, and they must be flipped together** (as of v2.7.0):
+`MODE_INFO["js8"]["status"] == "in-development"` (the chooser shows it as *In
+Development*, with no Select button) and **`"js8"` is absent from `MODES`** (so
+`load_mode`/`/action/mode/switch` refuse it with HTTP 400 — hiding the button is not
+enough, the endpoint is reachable by curl or a stale tab). `tools/test_mode_registry.py`
+enforces that anything not `"available"` stays out of `MODES`. Promoting JS8 at v4.0.0
+means restoring the `MODES` entry *and* flipping the status — never just one.
+The `bin/modes/js8/` package still satisfies the pipeline/engine contract while gated,
+which is what keeps re-enabling it a one-line change rather than a re-integration.
+
 **Three facts that cost real time to discover — don't rediscover them:**
 
 - **The AppImage is pinned to v3.0.2, not the newer v3.0.3, on purpose.** v3.0.3 is

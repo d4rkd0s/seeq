@@ -157,6 +157,7 @@ Release. Full release notes: [github.com/d4rkd0s/seeq/releases](https://github.c
 
 | Version | Date | What shipped |
 |---|---|---|
+| [v2.7.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.7.0) | 2026-07-29 | Chase a station you've never worked ahead of a familiar regular: already-logged callsigns now cost one priority tier plus a tunable dB penalty, so DX priority no longer parks the chaser on the same loud neighbour every session. JS8 marked In Development and made unselectable until its native rewrite is done |
 | [v2.6.2](https://github.com/d4rkd0s/seeq/releases/tag/v2.6.2) | 2026-07-26 | Fix: engine.json left a phantom PTT-on/mid-QSO state on the dashboard after an unclean exit (crash, power loss) — now reset to idle at every dashboard startup if qso.py isn't actually running |
 | [v2.6.1](https://github.com/d4rkd0s/seeq/releases/tag/v2.6.1) | 2026-07-25 | README release-tracking table + roadmap section; release checklist now requires updating both every release |
 | [v2.6.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.6.0) | 2026-07-25 | Moon widget, logo, QRZ auto-sync default-on, Freq Lock auto-correct, decode-list country flags, mode chooser descriptions |
@@ -164,13 +165,13 @@ Release. Full release notes: [github.com/d4rkd0s/seeq/releases](https://github.c
 | [v2.4.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.4.0) | 2026-07-25 | Mode roadmap descriptions (`MODE_INFO`) for the boot chooser |
 | [v2.3.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.3.0) | 2026-07-25 | Sun/moon ephemeris math library |
 | [v2.2.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.2.0) | 2026-07-25 | QRZ upload comment enrichment (SeeQ version + worked country) |
-| [v2.1.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.1.0) | 2026-07-25 | DX-aware candidate ranking for normal (non-DX-only) chase mode |
 
 <details>
-<summary>Earlier releases (v1.0.0 – v2.0.1)</summary>
+<summary>Earlier releases (v1.0.0 – v2.1.0)</summary>
 
 | Version | Date | What shipped |
 |---|---|---|
+| [v2.1.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.1.0) | 2026-07-25 | DX-aware candidate ranking for normal (non-DX-only) chase mode |
 | [v2.0.1](https://github.com/d4rkd0s/seeq/releases/tag/v2.0.1) | 2026-07-25 | Fix: TX abort on harmless CAT read-back jitter, not just a real mistune |
 | [v2.0.0](https://github.com/d4rkd0s/seeq/releases/tag/v2.0.0) | 2026-07-23 | Rebrand COTA → SeeQ, strict FCC compliance engine, BandPulse XSS fix, mode-chooser resize |
 | [v1.9.0](https://github.com/d4rkd0s/seeq/releases/tag/v1.9.0) | 2026-07-22 | Live BandPulse HF band-conditions banner + dynamic header status |
@@ -197,11 +198,18 @@ Release. Full release notes: [github.com/d4rkd0s/seeq/releases](https://github.c
 Full detail lives in [docs/ROADMAP.md](docs/ROADMAP.md) (the $0-cost build process) and
 [docs/MODES-ROADMAP.md](docs/MODES-ROADMAP.md) (which digital modes SeeQ drives, and why).
 
-- **Next up — JS8 mode (M1).** The mode-switching seam (registry, deliberate
+- **In development — JS8 mode (M1).** The mode-switching seam (registry, deliberate
   power-down/power-up changeover, boot chooser) shipped in v1.8.0 specifically to make
-  this possible. JS8 adds free-text messaging and store-and-forward alongside FT8 — new
-  engine, new dashboard panel, same frozen TX-safety chain and control-operator sign-off
-  FT8 had before its first on-air key-up.
+  this possible. JS8 adds free-text messaging and store-and-forward alongside FT8. It is
+  being built as a **fully native SeeQ mode** — our own protocol implementation, tone
+  generation, decoder and UI, no external application — rather than as a remote control
+  for a third-party program. The wire protocol is documented
+  ([docs/js8/PROTOCOL.md](docs/js8/PROTOCOL.md)) and the encoder is written; the decoder,
+  the native UI and on-air testing are still ahead
+  ([docs/js8/NATIVE-PLAN.md](docs/js8/NATIVE-PLAN.md)). The chooser shows it as
+  *In Development* and it is deliberately not selectable: it ships at v4.0.0, after the
+  same frozen TX-safety chain and control-operator sign-off FT8 had before its first
+  on-air key-up.
 - **After that — email over radio (Winlink, M2).** Design already researched and settled
   (Pat + ardopcf + a shared `rigctld`), not yet installed — see
   [`skills/email-over-radio.md`](../skills/email-over-radio.md) in the parent `~/Radio` tree.
