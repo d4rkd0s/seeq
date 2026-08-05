@@ -8,6 +8,22 @@ control operator. The GitHub repo, the `bin/coa` entrypoint (now `bin/seeq`, wit
 as a back-compat alias), and every doc were updated together. Old links to
 `github.com/d4rkd0s/cota` still resolve — GitHub redirects renamed repos automatically.*
 
+## The three baseline docs — read this before you start
+
+- **`CLAUDE.md`** (this file) — how to work here: rules, safety, structure, test gates.
+- **[`STATUS.md`](STATUS.md)** — what is true *right now*: shipped, in progress, gated.
+- **[`ROADMAP.md`](ROADMAP.md)** — the workstreams and how they're sequenced. Station-code
+  engineering detail stays in **[`docs/ROADMAP.md`](docs/ROADMAP.md)**; the top-level
+  `ROADMAP.md` is the program view.
+
+When you change one, check whether the others now lie. A shipped feature touches `STATUS.md`;
+a new or finished workstream touches `ROADMAP.md`; a new rule touches `CLAUDE.md`.
+
+**This repo is public.** Keep every doc repo-centric — what the software is, does, and
+needs. No station configuration, no credentials, no location or personal details, no
+operational logs. `station.conf` is never committed. If a fact is about the owner rather
+than about the code, it does not belong in a file here.
+
 ## Project structure
 
 ```
