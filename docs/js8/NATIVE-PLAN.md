@@ -3,7 +3,7 @@
 ## Context
 
 The JS8 mode currently on `master` (v-unreleased, commits `8700cd9`…`21c3c19`) drives
-**JS8Call-improved** — a third-party Qt GUI — over its TCP API. Logan's call is that this
+**JS8Call-improved** — a third-party Qt GUI — over its TCP API. The control operator's call is that this
 is the wrong shape: JS8 should be a **full mode built into SeeQ**, the way FT8 is —
 SeeQ's own protocol implementation, own tone generation, own decoder, own frontend. Not
 a remote control for someone else's application.
@@ -129,7 +129,7 @@ sensitivity is acceptable and expected; misreporting it is not.
 JS8Call listening to the same audio.
 
 **P6 — Native UI.** `panel.py`; rewire the six JS8 widgets to our own decode/state data.
-*Gate:* Logan's dashboard walkthrough, RX-only.
+*Gate:* the control operator's dashboard walkthrough, RX-only.
 
 **P7 — Retire the oracle.** Delete the AppImage, `vendor.py`, `api.py`, the wrapper
 `pipeline.py`/`engine.py`/`watchdog.py`/`rx_capture.py`, the CI fallback job, and the
@@ -138,7 +138,7 @@ JS8Call listening to the same audio.
 *Gate:* full suite green with JS8Call absent from the machine, and `seeq doctor` clean.
 **This is the definition of done.**
 
-**P8 — First on-air TX.** Logan's call, per his standard: bit-exact symbols *and*
+**P8 — First on-air TX.** The control operator's call, per their standard: bit-exact symbols *and*
 loopback decode, then judgement. The frozen TX-safety chain applies — but note it gets
 *stronger* here than in the wrapper: once SeeQ owns the modem, `rigctl`-based PTT and the
 detached `sleep N; rigctl T 0` watchdog work exactly as they do for FT8, so JS8 regains

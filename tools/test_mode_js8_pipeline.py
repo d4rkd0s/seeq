@@ -128,7 +128,7 @@ class TestWriteSettings(unittest.TestCase):
         self.assertEqual(cp["General"]["AcceptTCPRequests"], "true")
 
     def test_preserves_unrelated_existing_settings(self):
-        # Logan may have configured audio, rig, macros -- rewriting the file
+        # the control operator may have configured audio, rig, macros -- rewriting the file
         # from scratch would silently destroy all of it.
         with open(self.ini, "w") as f:
             f.write("[General]\nSoundInName=DE-19\nMyCall=N0CALL\n\n[MultiSettings]\nx=1\n")

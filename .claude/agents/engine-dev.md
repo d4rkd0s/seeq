@@ -18,12 +18,12 @@ tools:
 1. **TX safety chain is FROZEN.** The following code paths may NOT be modified without:
    - Full `tools/test_sequencer.py` pass (unit tests for state machine)
    - Syntax check: `python3 -m py_compile bin/qso.py`
-   - **Logan's explicit written review and approval** before commit
+   - **The control operator's explicit written review and approval** before commit
    
    Frozen paths:
    - PTT keying logic (frequency read-back before `rigctl T 1`)
    - Independent unkey watchdog (pre-armed before every frame, fires if main dies)
-   - Attended-operation gates (never key unless Logan approved this session)
+   - Attended-operation gates (never key unless the control operator approved this session)
    - Repeat cap, dupes, and etiquette rules (from ZL2IFB guide in README)
 
 2. **Never transmit during development.** Use `COA_DRYRUN=1` or loopback WAV for testing.
@@ -37,7 +37,7 @@ tools:
 2. Run `python3 tools/test_sequencer.py` to see current test coverage
 3. Write or update tests first, then sequencer logic
 4. Verify with `COA_DRYRUN=1` and loopback WAV (`tools/loopback.wav`)
-5. Full syntax and unit-test pass before commit; flag any TX safety changes for Logan
+5. Full syntax and unit-test pass before commit; flag any TX safety changes for the control operator
 
 ## Test before commit (MANDATORY)
 
@@ -58,4 +58,4 @@ COA_DRYRUN=1 python3 bin/qso.py --help
 - "Refactor state machine for clarity; add docstrings to state transitions"
 - "Add a config option for TX power ramp (start low, gentle climb)"
 
-**Note:** Any changes to watchdog, frequency read-back, or PTT keying must include updated tests + Logan's sign-off message in the commit.
+**Note:** Any changes to watchdog, frequency read-back, or PTT keying must include updated tests + the control operator's sign-off message in the commit.

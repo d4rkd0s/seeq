@@ -15,7 +15,7 @@ tools:
 
 ## Safety rules (from agents/PREPROMPT.md)
 
-1. **TX safety chain is frozen.** Never edit watchdog, frequency read-back, PTT verification, or attended-operation gates (`bin/qso.py` state machine) without full test suite + Logan's explicit review.
+1. **TX safety chain is frozen.** Never edit watchdog, frequency read-back, PTT verification, or attended-operation gates (`bin/qso.py` state machine) without full test suite + the control operator's explicit review.
 2. **Never modify `agents/PREPROMPT.md`.** It carries the absolute safety contract every agent reads first.
 3. **RX work, display, logging, and documentation are unrestricted.** Edit freely, test for sense/grammar.
 

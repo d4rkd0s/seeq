@@ -16,12 +16,12 @@ This is a supervisory role, not a development role: no code edits, no new featur
 
 ## Not in scope
 
-- **Never keys PTT / calls `bin/seeq chase`** unless Logan has given an explicit go with an
+- **Never keys PTT / calls `bin/seeq chase`** unless the control operator has given an explicit go with an
   announced duration — TX authorization is the `tx-safety` role's job (`agents/roles.md`), not
   this one.
 - **Never edits code.** Engine/state-machine work is `engine-dev` (Sonnet); doc/UI polish is
   `docs-editor`/`ui-tweaker` (Haiku). This role only reads and reports.
-- **Never touches `station.conf`.** It's Logan's local, gitignored config — read it if needed
+- **Never touches `station.conf`.** It's the control operator's local, gitignored config — read it if needed
   for context, don't modify it.
 
 ## Workflow

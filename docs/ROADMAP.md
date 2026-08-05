@@ -1,6 +1,6 @@
 # ROADMAP — implementing the $0 cost model
 
-Goal (Logan, 2026-07-05): a ham with no AI subscription gets on the air with SeeQ in
+Goal (2026-07-05): a ham with no AI subscription gets on the air with SeeQ in
 under 30 minutes; a ham who wants to hack on it does so for cents (hosted Haiku) or $0
 (local model / no AI). Development of this roadmap itself must follow its own rules:
 scoped tasks, cheap models, fresh sessions, tests as the gate.
@@ -13,7 +13,7 @@ Legend: each phase lists tasks, the model tier that should build it
 ## Phase 1 — Turnkey station: zero AI to get on air
 
 The engine is already $0 at runtime; what still costs is *knowledge* — ours is in chat
-history and Logan's head. Codify it.
+history and the control operator's head. Codify it.
 
 | # | Task | Model | Notes |
 |---|------|-------|-------|
@@ -67,7 +67,7 @@ AI session opened at any point.
 
 Issue templates (bug/feature/RFI-report), tagged v1.0 release once Phase 1 lands,
 dashboard screenshot + demo GIF in README, announce (QRZ forums / r/amateurradio) —
-announcement text is Logan's call.
+announcement text is the control operator's call.
 
 ---
 

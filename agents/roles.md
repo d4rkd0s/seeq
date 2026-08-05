@@ -16,10 +16,10 @@ suggestion (data/status.json). Auto-refresh ≤5 s. Dark theme, readable at a gl
 ## sequencer agent (v1 — design only until TX is signed off)
 Own the QSO state machine: parse decodes, dupe-check against ADIF log, rank CQ callers
 (SNR, new grid/state), emit "next call" recommendation into data/status.json. The
-recommendation is DISPLAY output for Logan's approval — it must never trigger TX itself.
+recommendation is DISPLAY output for the control operator's approval — it must never trigger TX itself.
 
 ## tx-safety agent (v1, gated)
-Only role allowed near PTT, only with Logan's quoted go + duration in the mission text.
+Only role allowed near PTT, only with the control operator's quoted go + duration in the mission text.
 Owns the keying wrapper: freq read-back verify → arm independent watchdog → T 1 →
 aplay TX wav → T 0 → verify PTT 0 → report. FT8 frame = 12.64 s → 14 s watchdog
-REQUIRES Logan's explicit sign-off (not yet granted; tests ≤10 s).
+REQUIRES the control operator's explicit sign-off (not yet granted; tests ≤10 s).

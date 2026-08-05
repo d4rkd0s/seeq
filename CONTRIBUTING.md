@@ -11,7 +11,7 @@
    - **Sonnet** (~$0.05/min) — state-machine features, integration testing, TX safety changes
    - **No AI** — merge PRs, run the test gate, troubleshoot your own installation
 4. **Test before you commit.** Run `tools/test_sequencer.py` and syntax checks (see [CLAUDE.md](CLAUDE.md)) — it's your gate.
-5. **TX safety chain is frozen code.** Watchdog, frequency read-back, PTT gates, attended-operation rules — these need **full test suite + Logan's explicit review** before any change lands.
+5. **TX safety chain is frozen code.** Watchdog, frequency read-back, PTT gates, attended-operation rules — these need **full test suite + the control operator's explicit review** before any change lands.
 
 ## Task types and where they belong
 
@@ -19,9 +19,9 @@
 |------|-------|-------|-----------------|
 | **Bug report** (e.g., "dashboard crashes on port 8074") | **Issue** on GitHub | n/a | n/a |
 | **Feature idea** (e.g., "show SNR trend over time") | **Issue** + discussion | n/a | n/a |
-| **Implement a feature** (approved by Logan, scoped) | **New session** | H or S | <1 hour |
+| **Implement a feature** (approved by the control operator, scoped) | **New session** | H or S | <1 hour |
 | **Fix a bug** (small, isolated, no TX safety) | **New session** | H | <30 min |
-| **TX safety or watchdog change** | **Issue + Logan's approval first**, then session | S | Full test suite mandatory |
+| **TX safety or watchdog change** | **Issue + the control operator's approval first**, then session | S | Full test suite mandatory |
 | **Docs/README/comment clarification** | **Session** if obvious, **issue** if architectural | H | <20 min |
 | **Refactor a module** (qso.py, ft8synth.py) | **Issue + acceptance criteria first**, then session | S | Full test suite before commit |
 
@@ -56,17 +56,17 @@ git commit -m "Your message.
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
-# 6. Don't push; let Logan review locally or open a PR for discussion
+# 6. Don't push; let the control operator review locally or open a PR for discussion
 ```
 
 ## PR expectations
 
 - **Tests pass:** `tools/test_sequencer.py` exit 0, syntax checks clean
 - **No personal data at all** — no real callsign, grid square, or device path anywhere in a tracked file. Station identity lives only in `station.conf`, which is gitignored; examples use placeholders like `N0CALL`/`AA00`.
-- **No TX safety changes** unless fully scoped in the PR title + approved by Logan
+- **No TX safety changes** unless fully scoped in the PR title + approved by the control operator
 - **One focused fix per PR.** If you're tempted to fix three unrelated things, open three PRs.
 - **Commit message format:** "Brief description. (Optional longer context.)"
-  - If it's a TX safety or state-machine change, add: "Tested with `test_sequencer.py`; Logan review required."
+  - If it's a TX safety or state-machine change, add: "Tested with `test_sequencer.py`; the control operator review required."
 
 ## Cost tracking (optional but encouraged)
 
@@ -88,10 +88,10 @@ See [docs/COST.md](docs/COST.md) for historical costs and the why.
 ## Questions?
 
 - **About the radio / hardware?** Read [agents/PREPROMPT.md](agents/PREPROMPT.md) skill pointers.
-- **About TX safety?** Talk to Logan (the control operator). TX changes are not code-review rubber-stamped; they need his approval.
+- **About TX safety?** Talk to the control operator. TX changes are not code-review rubber-stamped; they need the control operator's approval.
 - **About scope?** Default to shorter sessions and smaller changes. It costs less and ships faster.
 - **About the FT8 protocol?** See [README.md](README.md) "Architecture" section; `tools/ft8synth.py` is well-commented.
 
 ---
 
-**TL;DR:** One task, fresh session, Haiku unless it's deep. Test before commit. Never edit TX safety without Logan's sign-off. Ship small, ship often.
+**TL;DR:** One task, fresh session, Haiku unless it's deep. Test before commit. Never edit TX safety without the control operator's sign-off. Ship small, ship often.

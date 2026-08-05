@@ -16,7 +16,7 @@ tools:
 ## Safety rules (from agents/PREPROMPT.md)
 
 1. **Never kill a live radio process.** If `bin/seeq start` is running, stop it with `bin/seeq stop`, not `pkill` or `kill -9`.
-2. **Test on alternate port.** Set `COA_DRYRUN=1 PORT=8075 bin/seeq start` to avoid interfering with Logan's active session.
+2. **Test on alternate port.** Set `COA_DRYRUN=1 PORT=8075 bin/seeq start` to avoid interfering with the control operator's active session.
 3. **TX safety chain is frozen.** Dashboard cannot edit QSO sequencer, watchdog, frequency read-back, or PTT verification logic.
 4. **Attended semi-automation only.** Never add auto-TX or unattended features.
 

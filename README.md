@@ -220,7 +220,7 @@ Full detail lives in [docs/ROADMAP.md](docs/ROADMAP.md) (the $0-cost build proce
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Copyright 2026 Logan Schmidt.
+MIT — see [LICENSE](LICENSE). Copyright 2026 d4rkd0s.
 
 `jt9` and `ft8code` are part of [WSJT-X](https://wsjt.sourceforge.io) (GPL),
 which you install separately from your distribution; this project invokes them
@@ -230,4 +230,4 @@ them. Not affiliated with the WSJT-X project. World map data is Natural Earth
 shaped the etiquette engine, and to the WSJT-X team for the mode and the tools.
 
 ---
-*73 — Logan (and Claude)*
+*73 — d4rkd0s (and Claude)*

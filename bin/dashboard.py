@@ -1661,7 +1661,7 @@ async function loadAntennas(preserveSel){
 
 /* ---- Freq Lock: 5s auto-correct that pulls the radio back to the saved
    band's dial frequency if CAT read-back ever finds it drifted. ON by
-   default (same reasoning as QRZ auto-sync -- Logan's own feedback after
+   default (same reasoning as QRZ auto-sync -- the control operator's own feedback after
    trying the off-by-default version: a config-panel checkbox is too easy
    to miss, and a drifted radio going unnoticed is worse than the checkbox
    being on) -- an explicit opt-out still sticks across reloads, see
@@ -1917,7 +1917,7 @@ async function loadLogbook(){
    const dte=row.date?`${row.date.slice(4,6)}-${row.date.slice(6,8)}`:'';
    const [label,cls]=LB_MARKS[row.qrz]||[row.qrz,''];
    // country: derived client-side from the callsign (same DXCC prefix
-   // table as the map/cockpit), not a server field -- Logan asked for
+   // table as the map/cockpit), not a server field -- the control operator asked for
    // this as a local-only column.
    const country=callCountry(row.call)||'—';
    h+=`<tr class=lbRow data-call="${esc(row.call)}" data-grid="${esc(row.grid||'')}"><td>${esc(dte)} ${esc(t)}</td><td>${esc(row.call)}</td><td>${esc(country)}</td><td>${esc(row.grid)}</td>`+
@@ -2318,7 +2318,7 @@ function setActionsMsg(t){ document.getElementById('actionsMsg').textContent=t; 
    rule #5, docs/MODES-ROADMAP.md) -- this overlay is the dashboard's
    default view whenever /mode/state reports no active_mode, and it reuses
    .modalOverlay/.modalBox exactly as #dxModal/#helpModal already do. A
-   mode switch is a deliberate 30-45s changeover (Logan's explicit ask), so
+   mode switch is a deliberate 30-45s changeover (the control operator's explicit ask), so
    modeStageLabel surfaces each stage as it happens rather than a spinner. */
 function modeStageLabel(sw){
  if(!sw) return '';
@@ -3451,11 +3451,11 @@ def _retune_result_note(freq_hz, retuned, err_detail):
 # only /action/station/set below writes the *active* choice into station.conf,
 # and only when the chaser is stopped (see that handler).
 def _default_antennas():
-    """Seed from skills/antenna-atu.md (Logan's 3 physical antennas, 2026-07-03).
+    """Seed from skills/antenna-atu.md (the station's configured antennas).
     Only the EFHW has a number on record — the RFI-interim 5 W limit measured
     that day (10 W blacks out CAT/USB serial). The two dipoles' RF-exposure-
     verified max watts is a still-open TODO in that file; left unset (None)
-    here rather than guessed, so the UI shows them as unconfirmed until Logan
+    here rather than guessed, so the UI shows them as unconfirmed until the control operator
     fills them in himself via Add/Edit."""
     return [
         {"id": "efhw-40m", "name": "40 m EFHW", "bands": ["40m"], "max_watts": 5,

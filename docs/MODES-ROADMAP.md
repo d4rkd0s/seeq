@@ -25,7 +25,7 @@ Legend matches ROADMAP.md: **H**=Haiku-class cheap, **S**=Sonnet-class mid, **0*
    panel underneath (waterfall/candidate list/log layout differs per mode; email mode
    won't have a waterfall at all).
 4. **A mode switch is a deliberate power-down/power-up changeover, never an instant swap.**
-   Explicit instruction from Logan: switching modes should power down the current mode
+   Explicit instruction from the control operator: switching modes should power down the current mode
    fully, wait until everything has actually stopped, run a sanity check, and only then
    bring the new mode up — with visible operational weight to it, not a slick instant
    toggle. Concretely, `seeq mode switch <name>` is a sequenced, polled changeover:
@@ -45,22 +45,22 @@ Legend matches ROADMAP.md: **H**=Haiku-class cheap, **S**=Sonnet-class mid, **0*
    (boot → chooser → first "switch" into the picked mode, same sequenced path as any later
    switch, no special-cased fast path for the first one).
 
-## M0 decisions (2026-07-20, Logan's answers to `MODES-M0-QUESTIONS.md`)
+## M0 decisions (2026-07-20, the control operator's answers to `MODES-M0-QUESTIONS.md`)
 
 - **Wrap, don't move.** `bin/qso.py`, `bin/rx-loop.sh`, `bin/parse_decodes.py` stay
   byte-for-byte untouched. `bin/modes/ft8/` is thin adapters that shell out to them.
 - **FT8 stays on direct per-call `rigctl`, not a `rigctld` daemon**, for M0. Explicitly
-  deferred, not rejected — Logan flagged JS8 will need its own thought on this later
+  deferred, not rejected — the control operator flagged JS8 will need its own thought on this later
   (M1's control-API research already covers this); FT8 upgrades to a shared daemon only
   if/when that becomes the right call.
-- **Changeover poll timeout: 30–45 s.** Deliberate by design — Logan's framing: "so the
+- **Changeover poll timeout: 30–45 s.** Deliberate by design — the control operator's framing: "so the
   HAM is deliberate in mode switching."
 - **Boot chooser is dashboard-only; `seeq start` unchanged in scriptability** — no
   pipeline auto-starts on `seeq start` once M0 lands (a real behavior change from today,
-  see M0's task table below). Logan flagged this one as "don't fully get it" and deferred
+  see M0's task table below). The control operator flagged this one as "don't fully get it" and deferred
   to the recommendation — **revisit this specific call once M0's UI actually exists and
   is easier to react to hands-on**, don't treat it as permanently settled.
-- **`seeq chase N` stays a direct, unchanged CLI fast-path** — but per Logan's explicit
+- **`seeq chase N` stays a direct, unchanged CLI fast-path** — but per the control operator's explicit
   ask, it needs a **strong visual warning** (his words: "warn harder / show red/yellow
   and alert the user") since it's the one path that skips the deliberate changeover
   machinery entirely. New M0 task (M0.7) for this.
@@ -71,7 +71,7 @@ Today FT8 is hardcoded throughout `bin/dashboard.py`, `bin/qso.py`, `bin/parse_d
 `bin/rx-loop.sh`. Adding JS8 as a second real mode is exactly the point where a plugin
 seam earns its keep — one mode never needed it, two do.
 
-**Split into M0a/M0b (2026-07-20, confirmed with Logan):** `dashboard.py` is one
+**Split into M0a/M0b (2026-07-20, confirmed with the control operator):** `dashboard.py` is one
 3068-line file where the FT8 UI is ~2000 lines of HTML+JS with no existing internal
 seam, and ~15 JS tests string-slice functions out of that exact `PAGE` variable by name.
 Physically relocating all of that into `bin/modes/ft8/panel.py` is real, mechanical,
@@ -91,7 +91,7 @@ requirements, not speculatively now.
 | M0a.2 | `bin/mode_registry.py` — static registry (`{"ft8": {...}}`) + `load_mode(name)` dynamic loader; `station.conf` `MODE=ft8` field (label/default for `seeq setup`, not a runtime auto-select — see M0a.5) | S | Extension point M1 adds one entry to. |
 | M0a.3 | `bin/mode_switch.py` — sequenced, polled changeover per ground rule #4: force-unkey → request stop → **poll until confirmed stopped** (30–45 s timeout, injectable clock for tests) → sanity check (CAT free, PTT=0, no stray process) → preflight target mode → start target pipeline. Writes staged progress to `data/mode-switch.json`, `data/active-mode.json` on success. Callable via `seeq mode switch <name>` (new `bin/seeq` case) or the dashboard's `/action/mode/switch`. | S | Failed sanity check always hard-aborts, never proceeds. |
 | M0a.4 | Boot-time "Welcome — select a mode to begin" chooser (`#modeChooser`, reuses the existing `.modalOverlay` CSS pattern) per ground rule #5 — dashboard-only, purely additive to the current page, doesn't touch existing widget markup. `data/active-mode.json` ignored/cleared at each dashboard.py process start, so a fresh process never silently defaults. | S | |
-| M0a.5 | `seeq chase N` fast-path warning — hard-to-miss ANSI red/yellow terminal banner before the chase starts, since this path skips the changeover entirely | H | Per Logan's explicit ask. Terminal-only for M0a. |
+| M0a.5 | `seeq chase N` fast-path warning — hard-to-miss ANSI red/yellow terminal banner before the chase starts, since this path skips the changeover entirely | H | Per the control operator's explicit ask. Terminal-only for M0a. |
 
 **M0a acceptance:** boot shows the mode chooser; picking FT8 runs the changeover sequence
 and lands on the dashboard exactly as it looks today (nothing in `PAGE` moved); `seeq mode
@@ -111,11 +111,11 @@ the cut points instead of guessing now.
 
 | # | Task | Model | Notes |
 |---|------|-------|-------|
-| M1.1 | ~~Audit and close out Logan's separate JS8 repo, migrate anything reusable~~ **Done 2026-07-20** | H | `d4rkd0s/js8-mastery` audited via `gh`, research folded into `~/Radio/skills/js8.md`, repo archived. |
+| M1.1 | ~~Audit and close out the control operator's separate JS8 repo, migrate anything reusable~~ **Done 2026-07-20** | H | `d4rkd0s/js8-mastery` audited via `gh`, research folded into `~/Radio/skills/js8.md`, repo archived. |
 | M1.2 | ~~JS8 decoder/control wrapper~~ **Built 2026-07-26** — `bin/modes/js8/{api,vendor,pipeline,rx_capture}.py` | S | API verified against the fork's own `docs/API.md` + `JS8_UI/Configuration.cpp`. See "What verification turned up" below. |
 | M1.3 | ~~`engine.py` for JS8~~ **Built 2026-07-26** — `bin/modes/js8/{engine,watchdog}.py`. Correctly *not* a copy of `qso.py`: JS8Call-improved is itself the protocol engine, so `engine.py` is an orchestration + safety layer (confirm gate, dial read-back, pre-armed watchdog), not a state machine. | S | |
 | M1.4 | ~~JS8 dashboard panel~~ **Built 2026-07-26** — six `data-mode=js8` widgets (status, actions, conversation, compose, heard, inbox) reusing FT8's widget chrome. | S | M0b resolved by `data-mode` scoping rather than the physical `PAGE` split — see below. |
-| M1.5 | First on-air JS8 TX: full test suite + Logan's explicit watchdog/frequency-verification sign-off, same as FT8's original gate | — | **Still open.** Control-operator review, not a model task. Weigh the safety asymmetry below when signing off. |
+| M1.5 | First on-air JS8 TX: full test suite + the control operator's explicit watchdog/frequency-verification sign-off, same as FT8's original gate | — | **Still open.** Control-operator review, not a model task. Weigh the safety asymmetry below when signing off. |
 
 ### What verification turned up (M1.2)
 
@@ -180,7 +180,7 @@ but it is no longer a prerequisite for anything.
 ## Phase M2 — Email-over-radio (Winlink — already researched, not yet installed)
 
 **Correction from an earlier draft of this doc:** this was written as an open "Winlink vs.
-custom relay" question. It isn't — Logan already researched and decided this on
+custom relay" question. It isn't — the control operator already researched and decided this on
 2026-07-03, independent of and before this modes roadmap existed. See
 `~/Radio/skills/email-over-radio.md` (status: researched, not yet installed) for the full,
 already-verified design:
@@ -206,7 +206,7 @@ not a message state machine) compared to JS8's or FT8's.
 
 **Content-policy flag, not just technical:** real email traffic over amateur radio has to
 stay inside §97.113 (no business communications with narrow exceptions, no content that
-obscures meaning) — worth Logan's explicit re-read before this mode goes live, independent
+obscures meaning) — worth the control operator's explicit re-read before this mode goes live, independent
 of the technical design being settled. See the FCC Part 97 notes in `~/Radio/CLAUDE.md`.
 
 ## Backlog (flagged, not yet scheduled)
@@ -221,7 +221,7 @@ of the technical design being settled. See the FCC Part 97 notes in `~/Radio/CLA
   so it doesn't need a config key — it's just extra detail SeeQ can offer for any
   contact whose country happens to resolve to the US, regardless of where the operator
   is). Actual UI-string translation (station log messages, dashboard labels) hasn't
-  been scoped at all — flagged here per Logan's 2026-07-25 note, not started.
+  been scoped at all — flagged here per the control operator's 2026-07-25 note, not started.
 
 ## Execution notes
 
@@ -238,4 +238,4 @@ of the technical design being settled. See the FCC Part 97 notes in `~/Radio/CLA
   worth reconsidering build order then rather than assuming M1-before-M2 strictly.
 - **Same safety invariant as ROADMAP.md:** the TX safety chain is frozen code regardless of
   mode — no cheap-model or local-model session may modify watchdog, frequency verification,
-  or attended gates in any mode's `engine.py` without full tests + Logan's explicit review.
+  or attended gates in any mode's `engine.py` without full tests + the control operator's explicit review.

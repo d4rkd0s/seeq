@@ -3,7 +3,7 @@
 **Project:** Command-line FT8 chaser + live dashboard for Xiegu G90 + DE-19 interface. Runtime: $0 (no AI, no API keys). Tinkering: cents/hour with Haiku or free with local models.
 
 *Renamed from COTA ("Claude on the Air") on 2026-07-23 — that name implied Claude does the
-transmitting, which was never true: SeeQ is claude-less at runtime, Logan is always the
+transmitting, which was never true: SeeQ is claude-less at runtime, and a licensed human is always the
 control operator. The GitHub repo, the `bin/coa` entrypoint (now `bin/seeq`, with `coa` kept
 as a back-compat alias), and every doc were updated together. Old links to
 `github.com/d4rkd0s/cota` still resolve — GitHub redirects renamed repos automatically.*
@@ -39,10 +39,10 @@ station.conf  Config (never commit; copy from station.conf.example, edit for you
 
 From `agents/PREPROMPT.md` — these are codified in the watchdog and frequency read-back chain:
 
-1. **Never key PTT / transmit autonomously.** TX out of scope unless Logan's explicit go with announced duration.
+1. **Never key PTT / transmit autonomously.** TX out of scope unless the control operator's explicit go with announced duration.
 2. **Frequency read-back before every key-up** (`rigctl f` must match configured dial exactly).
 3. **Independent pre-armed unkey watchdog** (default 14 s, before every frame; fires even if main process dies).
-4. **Attended semi-automation only** — Logan stays at the radio when chasing.
+4. **Attended semi-automation only** — the control operator stays at the radio when chasing.
 5. **No hold on CAT serial port while WSJT-X runs.** Use PulseAudio for audio capture only.
 
 **TX safety chain is frozen code** — no cheap-model or local-model session may modify watchdog, frequency verification, or attended gates without full test suite + control-operator review.
@@ -128,7 +128,7 @@ or https://github.com/d4rkd0s/seeq/releases before bumping.
 **Status as of 2026-07-26: mid-pivot. Nothing about JS8 is released.**
 
 What is on `master` today is a **wrapper** that drives JS8Call-improved (a third-party
-Qt GUI) over its TCP API. Logan's decision on 2026-07-26 is that this is the wrong
+Qt GUI) over its TCP API. The control operator's decision on 2026-07-26 is that this is the wrong
 shape: **JS8 must be a full native SeeQ mode** — our own protocol implementation, tone
 generation, decoder and frontend, exactly as FT8 is ours. Not a remote control for
 someone else's application.
@@ -146,11 +146,11 @@ stage of our own modem verifiable bit-exactly, offline.
   (P0 spec → P1 encoder → P2 varicode → P3 synthesis → P4 decoder → P5 protocol →
   P6 UI → P7 delete JS8Call → P8 first on-air TX), each phase with a gate.
 
-**Two hard rules from Logan, both non-negotiable:**
+**Two hard rules from the control operator, both non-negotiable:**
 
 1. **Deleting JS8Call entirely is the definition of done.** JS8 mode is not "finished"
    while that AppImage is still on the machine. That is P7, and it gates the release.
-2. **JS8 ships as `v4.0.0`** — a major bump — and only after Logan has personally
+2. **JS8 ships as `v4.0.0`** — a major bump — and only after the control operator has personally
    exercised the mode on the live dashboard and said go. Commits land on `master` as
    work progresses; the release checklist does not run before that approval.
 
@@ -210,4 +210,4 @@ bin/seeq stop                            # Force PTT release + shutdown
 - Use [.claude/agents/](/.claude/agents/) pre-prompts (docs-editor, ui-tweaker, engine-dev) — they embed safety rules and model pins
 - Read PREPROMPT.md + relevant skill file (rig-control, de19-interface, wsjtx-ft8, antenna-atu) before any work
 - Keep sessions short and scoped (one task per session)
-- Never edit TX safety paths without full tests + Logan's review
+- Never edit TX safety paths without full tests + the control operator's review

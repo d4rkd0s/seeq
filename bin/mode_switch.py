@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """seeq mode switch <name> -- the sequenced, polled mode-changeover state
-machine (M0). Per Logan's explicit instruction, switching modes is a
+machine (M0). Per the control operator's explicit instruction, switching modes is a
 deliberate operational changeover, not an instant swap: stop the current
 mode fully, WAIT until it's actually confirmed stopped, sanity-check, only
 then start the target mode. A failed sanity check always hard-aborts the
@@ -23,7 +23,7 @@ import mode_registry  # noqa: E402
 STATUS_PATH = os.path.join(dashboard.DATA, "mode-switch.json")
 ACTIVE_MODE_PATH = os.path.join(dashboard.DATA, "active-mode.json")
 
-DEFAULT_POLL_TIMEOUT_S = 40  # within Logan's confirmed 30-45s deliberate-changeover window
+DEFAULT_POLL_TIMEOUT_S = 40  # within the control operator's confirmed 30-45s deliberate-changeover window
 
 
 def _read_active_mode(path):

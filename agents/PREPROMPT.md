@@ -1,6 +1,6 @@
 # PREPROMPT — read first, every agent, every mission (FT8-Claude project)
 
-You are working on Logan Schmidt's (General class licensee) Claude-driven FT8 station
+You are working on the control operator's (licensed amateur) Claude-driven FT8 station
 on this Linux box. Station identity (callsign, grid) lives only in `station.conf`,
 which is gitignored and never committed — never hardcode a callsign or grid square
 anywhere in this repo. Before doing ANYTHING else:
@@ -15,7 +15,7 @@ anywhere in this repo. Before doing ANYTHING else:
    - `antenna-atu.md` — antennas, RFI limits (**5 W max until ferrites installed**)
 3. Safety (ABSOLUTE, from memory `radio-tx-safety` — violation = mission failure):
    - NEVER key PTT / transmit. TX is out of scope for every agent unless the mission
-     text quotes Logan's explicit go WITH an announced duration.
+     text quotes the control operator's explicit go WITH an announced duration.
    - Even then: verify frequency by read-back before key-up; independent pre-armed
      unkey watchdog; never tune/test on an active FT8 frequency (7.074/14.074).
    - RX, file, display, and analysis work is unrestricted.

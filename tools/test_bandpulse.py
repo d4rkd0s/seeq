@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for bin/bandpulse.py -- the client for Logan's own bandpulse.net
+"""Unit tests for bin/bandpulse.py -- the client for the bandpulse.net
 public API (docs: bandpulse.net/docs), used to show a top-3-bands banner on
 the dashboard. Network touchpoint is curl via subprocess, same convention as
 bin/qrz_api.py's post() -- tests monkeypatch bandpulse._curl (the one

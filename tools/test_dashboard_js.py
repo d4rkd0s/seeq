@@ -750,7 +750,7 @@ class TestQrzAutoShouldArmOnLoad(unittest.TestCase):
 
 
 class TestFreqLockShouldArmOnLoad(unittest.TestCase):
-    """Freq Lock must default ON (Logan's explicit feedback after trying the
+    """Freq Lock must default ON (the control operator's explicit feedback after trying the
     off-by-default version -- a config-panel checkbox is too easy to miss)
     but still respect an explicit prior opt-out across reloads."""
 
@@ -1259,7 +1259,7 @@ class TestModeCardHtml(unittest.TestCase):
         self.assertIn("In Development", html)
 
     def test_in_development_mode_is_not_selectable(self):
-        """Not switchable until Logan has exercised it and released v4.0.0."""
+        """Not switchable until the control operator has exercised it and released v4.0.0."""
         html = run_mode_card_html("js8", self.IN_DEVELOPMENT)
         self.assertNotIn("data-mode=", html)
         self.assertNotIn("Select JS8", html)
